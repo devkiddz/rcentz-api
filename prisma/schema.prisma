@@ -373,14 +373,323 @@ enum ProductStatus {
   ARCHIVED
 }
 
-enum RcentzProductStatus {
-  DRAFT
+// =========================================================
+// RCENTZ PRODUCT DOMAIN
+//
+// A Rcentz Product is a long-lived public-use contract.
+//
+// Product identity/current state is kept separate from:
+// - production history
+// - publications / release stories / documentation
+// - galleries
+// - policies
+//
+// Public API exposure is decided separately.
+// =========================================================
+
+enum RcentzProductStage {
+  CONCEPT
+  PLANNING
   DEVELOPMENT
-  COMING_SOON
+  TESTING
   BETA
-  PUBLISHED
+  PRODUCTION
+  MAINTENANCE
   PAUSED
   RETIRED
+}
+
+enum RcentzProductUpdateType {
+  PLANNING
+  DEVELOPMENT
+  MILESTONE
+  PREVIEW
+  TESTING
+  BETA
+  RELEASE
+  IMPROVEMENT
+  MAINTENANCE
+  ANNOUNCEMENT
+}
+
+enum RcentzProductPublicationType {
+  STORY
+  RELEASE_NOTE
+  USE_CASE
+  CONTRIBUTION
+  LEARNING
+  DOCUMENTATION
+  GUIDE
+  FAQ
+}
+
+enum RcentzProductPolicyType {
+  TERMS_OF_USE
+  PRIVACY_POLICY
+  ACCEPTABLE_USE
+  DATA_POLICY
+  COOKIE_POLICY
+  LICENSE
+  COMMUNITY_GUIDELINES
+  OTHER
+}
+
+enum RcentzProductGalleryType {
+  GENERAL
+  PRODUCT
+  DEVELOPMENT
+  RELEASE
+  BRAND
+  DOCUMENTATION
+}
+
+model RcentzProduct {
+  id String @id @default(cuid())
+
+  // -------------------------------------------------------
+  // Identity
+  // -------------------------------------------------------
+
+  name String
+  slug String @unique
+
+  shortDescription String?
+  description      String?
+
+  tagline String?
+
+  // Main long-form explanation of the product itself.
+  aboutNotes String?
+
+  // Why the product exists.
+  purpose String?
+
+  // Who / what it is primarily intended to serve.
+  intendedUse String?
+
+  // The broader value Rcentz believes the product contributes.
+  contribution String?
+
+  // -------------------------------------------------------
+  // Current production state
+  // -------------------------------------------------------
+
+  stage RcentzProductStage @default(CONCEPT)
+
+  // Nullable by design.
+  // Unknown progress must never become an invented percentage.
+  progress Int?
+
+  // A product may be publicly documented before release.
+  isReleased Boolean @default(false)
+
+  currentVersion String?
+
+  productUrl String?
+
+  betaAvailable   Boolean @default(false)
+  waitlistEnabled Boolean @default(false)
+
+  // -------------------------------------------------------
+  // Catalogue / presentation metadata
+  //
+  // These fields describe the record.
+  // They do not themselves define API authorization.
+  // -------------------------------------------------------
+
+  featured  Boolean @default(false)
+  sortOrder Int     @default(0)
+
+  // Catalogue publication can happen before software release.
+  publishedAt DateTime?
+
+  // -------------------------------------------------------
+  // Product timeline
+  // -------------------------------------------------------
+
+  productionStartedAt DateTime?
+
+  expectedReleaseAt DateTime?
+
+  firstReleasedAt DateTime?
+
+  latestReleasedAt DateTime?
+
+  retiredAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // -------------------------------------------------------
+  // Public product contract
+  // -------------------------------------------------------
+
+  productionHistory RcentzProductUpdate[]
+
+  publications RcentzProductPublication[]
+
+  galleries RcentzProductGallery[]
+
+  policies RcentzProductPolicy[]
+
+  seo SeoMetadata?
+
+  @@index([stage])
+  @@index([isReleased])
+  @@index([featured])
+  @@index([sortOrder])
+  @@index([publishedAt])
+  @@index([firstReleasedAt])
+}
+
+model RcentzProductUpdate {
+  id        String @id @default(cuid())
+  productId String
+
+  title String
+
+  // Stable per-product URL/reference identifier.
+  slug String
+
+  summary String?
+
+  // Full production-history entry.
+  content String?
+
+  type RcentzProductUpdateType
+
+  // Optional version associated with this point in history.
+  version String?
+
+  // Historical snapshot, not the product's current value.
+  stageSnapshot RcentzProductStage?
+
+  progressSnapshot Int?
+
+  // When the event actually happened.
+  occurredAt DateTime @default(now())
+
+  // An update can exist internally before being published.
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product RcentzProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, slug])
+  @@index([productId])
+  @@index([type])
+  @@index([occurredAt])
+  @@index([publishedAt])
+}
+
+model RcentzProductPublication {
+  id        String @id @default(cuid())
+  productId String
+
+  title String
+  slug  String
+
+  excerpt String?
+
+  // Long-form article/document/story content.
+  content String
+
+  type RcentzProductPublicationType
+
+  // Useful for release notes/documentation tied to a version.
+  version String?
+
+  featured  Boolean @default(false)
+  sortOrder Int     @default(0)
+
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product RcentzProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, slug])
+  @@index([productId])
+  @@index([type])
+  @@index([featured])
+  @@index([sortOrder])
+  @@index([publishedAt])
+}
+
+model RcentzProductGallery {
+  id        String @id @default(cuid())
+  productId String
+
+  name String
+  slug String
+
+  description String?
+
+  type RcentzProductGalleryType @default(GENERAL)
+
+  featured  Boolean @default(false)
+  sortOrder Int     @default(0)
+
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product RcentzProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  media MediaAsset[]
+
+  @@unique([productId, slug])
+  @@index([productId])
+  @@index([type])
+  @@index([featured])
+  @@index([sortOrder])
+  @@index([publishedAt])
+}
+
+model RcentzProductPolicy {
+  id        String @id @default(cuid())
+  productId String
+
+  title String
+  slug  String
+
+  type RcentzProductPolicyType
+
+  version String
+
+  summary String?
+
+  content String
+
+  // Some policies merely inform.
+  // Others may eventually require user acceptance.
+  requiresAcceptance Boolean @default(false)
+
+  // Only one version should normally be considered current
+  // for a policy family at runtime.
+  isCurrent Boolean @default(true)
+
+  effectiveAt DateTime?
+
+  publishedAt DateTime?
+
+  supersededAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product RcentzProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, slug, version])
+  @@index([productId])
+  @@index([type])
+  @@index([isCurrent])
+  @@index([effectiveAt])
+  @@index([publishedAt])
 }
 
 enum InventoryMovementType {
@@ -2059,49 +2368,6 @@ model ProductCategory {
   products Product[]
 }
 
-// =========================================================
-// RCENTZ PRODUCTS
-// Products owned, developed and operated by Rcentz.
-// Distinct from commerce Product records used by the Store.
-// =========================================================
-
-model RcentzProduct {
-  id String @id @default(cuid())
-
-  name             String
-  slug             String  @unique
-  shortDescription String?
-  description      String?
-
-  status   RcentzProductStatus @default(DRAFT)
-  progress Int                 @default(0)
-
-  productUrl String?
-
-  featured  Boolean @default(false)
-  visible   Boolean @default(true)
-  sortOrder Int     @default(0)
-
-  betaAvailable   Boolean @default(false)
-  waitlistEnabled Boolean @default(false)
-
-  expectedLaunchAt DateTime?
-  launchedAt       DateTime?
-  publishedAt      DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  media MediaAsset[]
-  seo   SeoMetadata?
-
-  @@index([status])
-  @@index([featured])
-  @@index([visible])
-  @@index([sortOrder])
-  @@index([publishedAt])
-}
-
 model Product {
   id         String  @id @default(cuid())
   categoryId String?
@@ -3309,29 +3575,29 @@ model MediaAsset {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  userId          String?
-  serviceId       String?
-  projectId       String?
-  projectUpdateId String?
-  rcentzProductId String?
-  productId       String?
-  blogPostId      String?
-  orderId         String?
+  userId                 String?
+  serviceId              String?
+  projectId              String?
+  projectUpdateId        String?
+  rcentzProductGalleryId String?
+  productId              String?
+  blogPostId             String?
+  orderId                String?
 
-  user          User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  service       Service?       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  project       Project?       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectUpdate ProjectUpdate? @relation(fields: [projectUpdateId], references: [id], onDelete: Cascade)
-  rcentzProduct RcentzProduct? @relation(fields: [rcentzProductId], references: [id], onDelete: Cascade)
-  product       Product?       @relation(fields: [productId], references: [id], onDelete: Cascade)
-  blogPost      BlogPost?      @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
-  order         Order?         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user                 User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  service              Service?              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  project              Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectUpdate        ProjectUpdate?        @relation(fields: [projectUpdateId], references: [id], onDelete: Cascade)
+  rcentzProductGallery RcentzProductGallery? @relation(fields: [rcentzProductGalleryId], references: [id], onDelete: Cascade)
+  product              Product?              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  blogPost             BlogPost?             @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
+  order                Order?                @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([serviceId])
   @@index([projectId])
   @@index([projectUpdateId])
-  @@index([rcentzProductId])
+  @@index([rcentzProductGalleryId])
   @@index([productId])
   @@index([blogPostId])
   @@index([orderId])
