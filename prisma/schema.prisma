@@ -532,7 +532,11 @@ model RcentzProduct {
 
   policies RcentzProductPolicy[]
 
-  seo SeoMetadata?
+  seo                  SeoMetadata?
+  technologies         RcentzProductTechnology[]
+  platformAvailability RcentzProductPlatformAvailability[]
+  securityCapabilities RcentzProductSecurityCapability[]
+  scaleProfile         RcentzProductScaleProfile?
 
   @@index([stage])
   @@index([isReleased])
@@ -913,6 +917,9 @@ enum SeoRobots {
 // =========================================================
 
 model User {
+  applicationIdentities ApplicationIdentity[]
+  opportunityProfiles   OpportunityProfile[]
+
   id            String     @id @default(cuid())
   name          String
   email         String     @unique
@@ -3637,4 +3644,213 @@ model SeoMetadata {
   product       Product?       @relation(fields: [productId], references: [id], onDelete: Cascade)
   blogPost      BlogPost?      @relation(fields: [blogPostId], references: [id], onDelete: Cascade)
   project       Project?       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// Explicit links: never infer account ownership from matching email addresses.
+model ApplicationIdentity {
+  id            String   @id @default(cuid())
+  applicationId String
+  subject       String
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopes        String[]
+  enabled       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([applicationId, subject])
+  @@index([userId, applicationId])
+}
+
+model ApplicationRequestNonce {
+  id            String   @id @default(cuid())
+  applicationId String
+  nonce         String
+  expiresAt     DateTime
+
+  @@unique([applicationId, nonce])
+  @@index([expiresAt])
+}
+
+// Private opportunity search. Ownership is checked separately from admin access.
+model OpportunityProfile {
+  id              String           @id @default(cuid())
+  ownerId         String           @unique
+  owner           User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  skills          String[]
+  experienceYears Int              @default(2)
+  enabled         Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  opportunities   Opportunity[]
+  runs            OpportunityRun[]
+}
+
+model Opportunity {
+  id          String             @id @default(cuid())
+  profileId   String
+  profile     OpportunityProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  source      String
+  externalId  String
+  title       String
+  company     String
+  url         String
+  description String
+  location    String
+  salary      String?
+  jobType     String
+  publishedAt DateTime
+  lastSeenAt  DateTime           @default(now())
+  sourceState String             @default("LISTED")
+  score       Int
+  assessment  Json
+  status      String             @default("NEW")
+  notes       String             @default("")
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([profileId, source, externalId])
+  @@index([profileId, status, score])
+}
+
+model OpportunityRun {
+  id         String             @id @default(cuid())
+  profileId  String
+  profile    OpportunityProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  source     String
+  status     String
+  fetched    Int                @default(0)
+  added      Int                @default(0)
+  message    String?
+  startedAt  DateTime           @default(now())
+  finishedAt DateTime?
+
+  @@index([profileId, startedAt])
+}
+
+// Restored from the read-only Neon inspection; existing capability tables are preserved.
+enum RcentzProductPlatform {
+  WEB
+  PWA
+  ANDROID
+  IOS
+  WINDOWS
+  MACOS
+  LINUX
+  API
+}
+
+enum RcentzProductPlatformStatus {
+  AVAILABLE
+  BETA
+  DEVELOPMENT
+  PLANNED
+  UNAVAILABLE
+}
+
+enum RcentzProductSecurityStatus {
+  IMPLEMENTED
+  PARTIAL
+  PLANNED
+  UNDER_REVIEW
+}
+
+enum RcentzProductTechnologyCategory {
+  LANGUAGE
+  FRAMEWORK
+  RUNTIME
+  DATABASE
+  ORM
+  AUTHENTICATION
+  INFRASTRUCTURE
+  PAYMENTS
+  ANALYTICS
+  AI
+  DEVOPS
+  OTHER
+}
+
+model RcentzProductPlatformAvailability {
+  id          String                      @id @default(cuid())
+  productId   String
+  platform    RcentzProductPlatform
+  status      RcentzProductPlatformStatus
+  url         String?
+  summary     String?
+  sortOrder   Int                         @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
+  product     RcentzProduct               @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, platform])
+  @@index([platform])
+  @@index([productId])
+  @@index([publishedAt])
+  @@index([sortOrder])
+  @@index([status])
+}
+
+model RcentzProductScaleProfile {
+  id                        String        @id @default(cuid())
+  productId                 String        @unique
+  supportsMultipleUsers     Boolean?
+  supportsMultiTenancy      Boolean?
+  verifiedConcurrentUsers   Int?
+  verifiedRequestsPerSecond Int?
+  publicSummary             String?
+  internalBenchmarkNotes    String?
+  benchmarkedAt             DateTime?
+  publishedAt               DateTime?
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+  product                   RcentzProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([benchmarkedAt])
+  @@index([publishedAt])
+}
+
+model RcentzProductSecurityCapability {
+  id          String                      @id @default(cuid())
+  productId   String
+  name        String
+  slug        String
+  summary     String?
+  status      RcentzProductSecurityStatus @default(PLANNED)
+  featured    Boolean                     @default(false)
+  sortOrder   Int                         @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
+  product     RcentzProduct               @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, slug])
+  @@index([featured])
+  @@index([productId])
+  @@index([publishedAt])
+  @@index([sortOrder])
+  @@index([status])
+}
+
+model RcentzProductTechnology {
+  id          String                          @id @default(cuid())
+  productId   String
+  name        String
+  slug        String
+  category    RcentzProductTechnologyCategory
+  version     String?
+  summary     String?
+  featured    Boolean                         @default(false)
+  sortOrder   Int                             @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime                        @default(now())
+  updatedAt   DateTime                        @updatedAt
+  product     RcentzProduct                   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, slug])
+  @@index([category])
+  @@index([featured])
+  @@index([productId])
+  @@index([publishedAt])
+  @@index([sortOrder])
 }
