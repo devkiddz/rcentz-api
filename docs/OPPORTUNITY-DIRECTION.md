@@ -64,7 +64,7 @@ These identifiers belong to this upgrade and do not renumber earlier Rcentz mile
 | ID | Priority | Milestone | Current state | Completion evidence |
 | --- | --- | --- | --- | --- |
 | OA-00 | First | Align documents and milestones | Completed - 10 October 2026 | Updated documents agree; installed changes reviewed and pushed; exact pushed files checked |
-| OA-01 | First | Review and stabilize the existing finder | Pending | Current API and Systems agree; record reads and edits, collection, failed sources and unauthorized access checked; baseline recorded |
+| OA-01 | First | Review and stabilize the existing finder | In progress - source review and refresh correction prepared | Current API and Systems agree; record reads and edits, collection, failed sources and unauthorized access checked; baseline recorded |
 | OA-02 | First | Define one focused company capability | Pending | Existing service and proof reused; private company profile can be created, edited and read through API and Systems; personal profile stays separate |
 | OA-03 | First | Make commercial discovery useful | Pending | Limited supported sources yield clearly classified buyer requests and leads; reasons and gaps visible; employment still works; ownership and saved decisions preserved |
 | OA-04 | First | Manage pursuit | Pending | Authorized users record stages, notes, proposal/application drafts and outcomes; human review enforced; history survives refresh |
@@ -117,3 +117,7 @@ Installed by Dennis, content reviewed, whitespace corrections checked, and both 
 - Application, browser and deployment behavior: not tested under OA-00; belongs to OA-01 and later launch checks.
 
 These commits establish the verified documentation checkpoint. This completion record is a follow-up documentation change. OA-01 through OA-07 remain pending.
+
+## OA-01 review
+
+See [OPPORTUNITY-REVIEW.md](OPPORTUNITY-REVIEW.md) for source findings, the reproduced refresh defect, correction, local check results and installed acceptance steps. Source and local checks are complete for this first correction; installation, push and real workspace checks remain pending. OA-01 stays open.
