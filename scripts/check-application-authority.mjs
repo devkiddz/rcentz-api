@@ -192,7 +192,12 @@ prisma.opportunity = {
   },
 };
 const matching = load("features/opportunities/lib/matching.ts");
+const review = load("server/opportunities/career-review.ts", {
+  "@/features/opportunities/lib/project-evidence": load("features/opportunities/lib/project-evidence.ts"),
+  "./policy": load("server/opportunities/policy.ts"),
+});
 const route = load("app/api/v1/internal/systems/opportunities/route.ts", {
+  "@/server/opportunities/career-review": review,
   "@/server/opportunities/retention": {retentionSnapshot: async ownerId => {assert.equal(ownerId, "central-owner"); return {deletionPerformed:false};}},
   "@/features/opportunities/lib/project-evidence": load("features/opportunities/lib/project-evidence.ts"),
   "@/lib/prisma": { prisma },
@@ -328,12 +333,14 @@ console.log(
 );
 
 let detailReads = 0;
+const detailProfile = {skills:["React","TypeScript"],projectEvidence:[],experienceYears:2,careerContext:"",targetRoles:["Frontend Developer"],homeCountry:"Nigeria",relocation:true,maxWeeklyHours:40};
 prisma.opportunity.findFirst = async (q) => {
   detailReads++;
   assert.equal(q.where.profile.ownerId, "central-owner");
   assert.ok(q.select.id);
+  assert.ok(q.select.profile.select.projectEvidence);
   return q.where.id === "owned"
-    ? { id: "owned", description: "x".repeat(7000), status: "ARCHIVED" }
+    ? { id: "owned", title: "Frontend Developer", source: "REMOTIVE", description: ("Must haves: React and TypeScript required. " + "x".repeat(7000)), status: "ARCHIVED", quarantined: false, assessment: {}, profile: detailProfile }
     : null;
 };
 identity.scopes = ["opportunities:write"];
@@ -351,6 +358,15 @@ assert.equal(detailResponse.headers.get("Cache-Control"), "no-store");
 const detail = await detailResponse.json();
 assert.equal(detail.data.job.description.length, 6000);
 assert.equal(detail.data.job.status, "ARCHIVED");
+assert.equal(detail.data.job.profile, undefined);
+assert.equal(detail.data.job.assessment.careerReview.version, 1);
+assert.equal(detail.data.job.assessment.careerReview.recommendation, "CLARIFY");
+const writesBeforeReview = writes;
+detailProfile.projectEvidence.push({name:"Recorded work",url:"https://example.com/demo",skills:["React","TypeScript"],contribution:"Implemented React screens and TypeScript API contracts."});
+const refreshedDetail = await (await route.POST(request({operation:"detail",id:"owned"}))).json();
+assert.equal(refreshedDetail.data.job.assessment.careerReview.recommendation,"PURSUE");
+assert.equal(refreshedDetail.data.job.status,"ARCHIVED");
+assert.equal(writes,writesBeforeReview);
 assert.equal(
   (
     await (
@@ -364,7 +380,7 @@ for (const id of ["", "../owned", "x".repeat(161)])
     (await route.POST(request({ operation: "detail", id }))).status,
     400,
   );
-assert.equal(detailReads, 2);
+assert.equal(detailReads, 3);
 console.log(
   "PASS: private detail requires read scope, scopes every lookup to owner, handles missing/archived records, bounds excerpts and rejects malformed identifiers.",
 );

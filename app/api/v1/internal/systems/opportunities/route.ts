@@ -1,3 +1,4 @@
+import { reviewCareer } from "@/server/opportunities/career-review";
 import { retentionSnapshot } from "@/server/opportunities/retention";
 import { isProjectEvidence } from "@/features/opportunities/lib/project-evidence";
 import {
@@ -76,12 +77,13 @@ async function handle(request: Request) {
         return apiError("INVALID_ID", "Invalid opportunity identifier", 400);
       const job = await prisma.opportunity.findFirst({
         where: { id: payload.id, profile: { ownerId } },
-        select: opportunitySelect,
+        select: { ...opportunitySelect, profile: { select: { skills: true, projectEvidence: true, experienceYears: true, careerContext: true, targetRoles: true, homeCountry: true, relocation: true, maxWeeklyHours: true } } },
       });
+      if (!job) return apiSuccess({ job: null });
+      const { profile, ...publicJob } = job;
+      const review = reviewCareer({ ...publicJob, externalId: publicJob.id, publishedKnown: false }, profile, job.quarantined);
       return apiSuccess({
-        job: job
-          ? { ...job, description: job.description.slice(0, 6000) }
-          : null,
+        job: { ...publicJob, description: job.description.slice(0, 6000), assessment: { ...(record(job.assessment) ? job.assessment : {}), careerReview: review } },
       });
     }
     if (payload.operation === "profile") {

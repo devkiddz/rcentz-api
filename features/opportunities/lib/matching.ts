@@ -1,3 +1,4 @@
+import type { CareerReview } from "./career-review";
 export type Listing = {
   externalId: string;
   title: string;
@@ -10,6 +11,7 @@ export type Listing = {
   publishedAt: Date;
 };
 export type Assessment = {
+  careerReview?: CareerReview;
   matched: string[];
   concerns: string[];
   questions: string[];
