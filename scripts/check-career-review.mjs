@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
 function load(file,stubs={}){const out=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const m={exports:{}};new Function('require','module','exports',out)(n=>{if(!(n in stubs))throw Error('Unmocked '+n);return stubs[n];},m,m.exports);return m.exports;}
-const {reviewCareer}=load('server/opportunities/career-review.ts',{'@/features/opportunities/lib/project-evidence':load('features/opportunities/lib/project-evidence.ts'),'./policy':load('server/opportunities/policy.ts')});
+const {reviewCareer}=load('server/opportunities/career-review.ts',{'@/features/opportunities/lib/source-context':load('features/opportunities/lib/source-context.ts'),'@/features/opportunities/lib/project-evidence':load('features/opportunities/lib/project-evidence.ts'),'./policy':load('server/opportunities/policy.ts')});
 const {isCareerReview}=load('features/opportunities/lib/career-review.ts');
 const profile={skills:['React','TypeScript'],projectEvidence:[{name:'Delivery',url:'https://example.com',skills:['React','TypeScript'],contribution:'I implemented React components and TypeScript data contracts.'}],experienceYears:2,careerContext:'',targetRoles:['Frontend Developer'],homeCountry:'Nigeria',relocation:true,maxWeeklyHours:40};
 const listing={source:'REMOTIVE',kind:'EMPLOYMENT',externalId:'one',title:'Frontend Developer',company:'Acme',url:'https://example.com/job',location:'Worldwide',salary:null,jobType:'full_time',publishedAt:new Date(),publishedKnown:true};
@@ -34,5 +34,17 @@ for(const contribution of ['I did not implement React or TypeScript.', 'The team
  const result=run('Must haves: React and TypeScript required.',{}, {...profile,projectEvidence:[{...profile.projectEvidence[0],contribution}]});assert.ok(!result.requirements.some(r=>r.evidence==='SUPPORTED'),contribution);
 }
 assert.equal(run('React and TypeScript required, Docker preferred.').recommendation,'CLARIFY');
+a=run('Required Qualifications: React required. Preferred Qualifications: TypeScript or Next.js.');
+assert.equal(a.requirements.find(r=>r.name.includes('TypeScript')).priority,'PREFERRED');
+a=run('Requirements: React and TypeScript and CSS or Tailwind required.');
+assert.ok(a.requirements.some(r=>r.name==='React'));assert.ok(a.requirements.some(r=>r.name==='TypeScript'));assert.ok(!a.requirements.some(r=>r.name.includes('React / TypeScript')));
+a=run('Must haves: React and TypeScript required.',{source:'WEB_SEARCH',url:'https://www.ziprecruiter.com/Jobs/Remote-Frontend-Developer-React-Next-Js',title:'$104k-$141k Remote Frontend Developer React Next Js Jobs'});
+assert.equal(a.requirements.length,0);assert.equal(a.recommendation,'CLARIFY');assert.match(a.reason,/jobs-results page/);
+const context=load('features/opportunities/lib/source-context.ts');
+assert.equal(context.sourceContext({source:'WEB_SEARCH',url:'https://www.ziprecruiter.com/Jobs/Remote-React',title:'React Jobs'}),'RESULTS_PAGE');
+assert.equal(context.sourceContext({source:'WEB_SEARCH',url:'https://www.ziprecruiter.com/c/Acme/Job/Frontend/-in-London',title:'Frontend Engineer'}),'DISCOVERY_SNIPPET');
+assert.equal(context.sourceContext({source:'REMOTIVE',url:'https://remotive.com/remote-jobs/software-dev/frontend-123',title:'Frontend Engineer'}),'VACANCY_TEXT');
+const fit=load('server/opportunities/fit.ts',{'@/features/opportunities/lib/source-context':context,'@/features/opportunities/lib/project-evidence':load('features/opportunities/lib/project-evidence.ts'),'./policy':load('server/opportunities/policy.ts'),'@/features/opportunities/lib/matching':load('features/opportunities/lib/matching.ts')});
+assert.equal(fit.careerFit({...listing,source:'WEB_SEARCH',url:'https://www.ziprecruiter.com/Jobs/React',title:'React TypeScript Jobs',description:'React and TypeScript required.'},profile,{risk:'UNKNOWN'}).score,0);
 const before=JSON.stringify(profile);run('React required.');assert.equal(JSON.stringify(profile),before);
 console.log('PASS: contributions versus tags, mandatory/preferred/alternative wording, experience/capacity boundaries, qualification unknowns, snippet caution, quarantine precedence, bounded contracts and immutable profiles.');

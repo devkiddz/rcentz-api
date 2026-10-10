@@ -193,12 +193,14 @@ prisma.opportunity = {
 };
 const matching = load("features/opportunities/lib/matching.ts");
 const review = load("server/opportunities/career-review.ts", {
+  "@/features/opportunities/lib/source-context": load("features/opportunities/lib/source-context.ts"),
   "@/features/opportunities/lib/project-evidence": load("features/opportunities/lib/project-evidence.ts"),
   "./policy": load("server/opportunities/policy.ts"),
 });
 const route = load("app/api/v1/internal/systems/opportunities/route.ts", {
   "@/server/opportunities/career-review": review,
   "@/server/opportunities/retention": {retentionSnapshot: async ownerId => {assert.equal(ownerId, "central-owner"); return {deletionPerformed:false};}},
+  "@/features/opportunities/lib/source-context": load("features/opportunities/lib/source-context.ts"),
   "@/features/opportunities/lib/project-evidence": load("features/opportunities/lib/project-evidence.ts"),
   "@/lib/prisma": { prisma },
   "@/server/api/responses/api-response": responses,
@@ -340,7 +342,7 @@ prisma.opportunity.findFirst = async (q) => {
   assert.ok(q.select.id);
   assert.ok(q.select.profile.select.projectEvidence);
   return q.where.id === "owned"
-    ? { id: "owned", title: "Frontend Developer", source: "REMOTIVE", description: ("Must haves: React and TypeScript required. " + "x".repeat(7000)), status: "ARCHIVED", quarantined: false, assessment: {}, profile: detailProfile }
+    ? { id: "owned", title: "Frontend Developer", source: "REMOTIVE", url: "https://example.com/job", description: ("Must haves: React and TypeScript required. " + "x".repeat(7000)), status: "ARCHIVED", quarantined: false, assessment: {}, profile: detailProfile }
     : null;
 };
 identity.scopes = ["opportunities:write"];

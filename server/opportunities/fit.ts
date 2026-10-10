@@ -1,3 +1,4 @@
+import { sourceContext } from "@/features/opportunities/lib/source-context";
 import { projectGrounding } from "@/features/opportunities/lib/project-evidence";
 import { weeklyHours } from "./policy";
 import { assess } from "@/features/opportunities/lib/matching";
@@ -18,6 +19,7 @@ export function careerFit(
   profile: CareerProfile,
   research: Research,
 ) {
+  const resultsPage = sourceContext(listing) === "RESULTS_PAGE";
   const base = assess(listing, profile.skills, profile.experienceYears);
   const a = base.assessment;
   const text = (listing.title + " " + listing.description).toLowerCase();
@@ -46,7 +48,7 @@ export function careerFit(
     ? "Worldwide wording found; employer acceptance and work authorization still require confirmation."
     : sponsorship && profile.relocation
       ? "Relocation/sponsorship wording found; investigate eligibility and costs."
-      : `Eligibility from ${profile.homeCountry} is unconfirmed. ${remote ? "Remote wording does not establish worldwide eligibility." : "Listed location: " + (listing.location || "not supplied")}.`;
+      : `Eligibility from ${profile.homeCountry} is unconfirmed. ${remote ? "Remote wording does not establish worldwide eligibility" : "Listed location: " + (listing.location || "not supplied")}.`;
   const evidence = [
     ...a.matched.map((skill) => `${skill} appears in the listing.`),
     ...(matchedRole ? [`Title overlaps target role: ${matchedRole}.`] : []),
@@ -129,7 +131,7 @@ export function careerFit(
             : "Clarify before pursuing"
           : "Low priority";
   return {
-    score,
+    score: resultsPage ? 0 : score,
     assessment: {
       ...a,
       eligibility,

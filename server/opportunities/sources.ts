@@ -167,8 +167,8 @@ export function researchQueries(roles: string[], skills: string[]) {
     "Australia Asia Pacific remote",
   ][day % 3];
   return [
-    ...rotated.slice(0, 3).map((role) => ({
-      q: `${role} ${stack} remote worldwide careers job`,
+    ...rotated.slice(0, 3).map((role, index) => ({
+      q: index === 0 ? `site:job-boards.greenhouse.io ${role} ${stack} remote` : index === 1 ? `site:jobs.lever.co ${role} ${stack} remote` : `${role} ${stack} remote worldwide careers job`,
       kind: "EMPLOYMENT",
     })),
     {
@@ -208,11 +208,11 @@ async function search(roles: string[], skills: string[]): Promise<SourceBatch> {
           v.title,
           "Employer requires research",
           v.url,
-          [
+          [...new Set([
             v.description,
             ...(Array.isArray(v.extra_snippets) ? v.extra_snippets : []),
           ]
-            .filter((x) => typeof x === "string")
+            .filter((x) => typeof x === "string").map(x => x.replace(/\s+/g, " ").trim()))]
             .join(" "),
           "Not established",
           null,

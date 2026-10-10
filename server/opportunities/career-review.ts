@@ -1,3 +1,4 @@
+import { sourceContext } from "@/features/opportunities/lib/source-context";
 import { isProjectEvidence } from "@/features/opportunities/lib/project-evidence";
 import type { CareerReview, CareerRequirement } from "@/features/opportunities/lib/career-review";
 import type { CareerProfile } from "./fit";
@@ -59,9 +60,18 @@ function quote(text: string, match: RegExp) {
 }
 // This is a bounded, deterministic evidence review, not an LLM or a credential verifier.
 export function reviewCareer(listing: SourceListing, profile: CareerProfile, quarantined: boolean, now = new Date()): CareerReview {
+  const context = sourceContext(listing);
+  if (context !== "VACANCY_TEXT") return {
+    version: 1, assessedAt: now.toISOString(), recommendation: quarantined ? "QUARANTINE" : "CLARIFY",
+    reason: quarantined ? "Review recruitment risk before pursuing this source." : context === "RESULTS_PAGE" ?
+      "This is a jobs-results page, not one vacancy. Its snippets can mix employers, salaries and requirements, so a career-fit assessment would be misleading." :
+      "This lead contains a discovery snippet. Full vacancy requirements and employer identity have not been established.",
+    coverage: "No vacancy-specific requirements were inferred from this discovery text. Saved decisions and notes are unchanged.",
+    requirements: [], nextSteps: [context === "RESULTS_PAGE" ? "Open the source and identify one employer's individual vacancy." : "Open the individual vacancy and confirm its employer and full requirements.", "Verify eligibility, compensation and workload on that vacancy before committing."],
+  };
   const projects = isProjectEvidence(profile.projectEvidence) ? profile.projectEvidence : [];
   const text = listing.description.slice(0, 16000);
-  const fragments = text.replace(/\b(must haves?|nice to haves?|requirements|qualifications|responsibilities|benefits|about us|job overview)\b\s*:?/gi, "\n$1\n")
+  const fragments = text.replace(/\b(preferred qualifications|required qualifications|must haves?|nice to haves?|requirements|qualifications|responsibilities|benefits|about us|job overview)\b\s*:?/gi, "\n$1\n")
     .split(/\n|;|[.!?](?:\s|$)/).map(s => s.trim()).filter(Boolean).slice(0, 160);
   const rows: CareerRequirement[] = [];
   let heading: CareerRequirement["priority"] = "MENTIONED";
@@ -72,15 +82,22 @@ export function reviewCareer(listing: SourceListing, profile: CareerProfile, qua
     else if (rows[prior].priority !== "REQUIRED" && row.priority === "REQUIRED") rows[prior] = row;
   };
   for (const fragment of fragments) {
-    if (/^(?:nice to haves?|benefits|about us|job overview)$/i.test(fragment)) { heading = /^nice/i.test(fragment) ? "PREFERRED" : "MENTIONED"; continue; }
-    if (/^(?:must haves?|requirements|qualifications|responsibilities)$/i.test(fragment)) { heading = "REQUIRED"; continue; }
-    const p = priority(fragment, heading);
+    if (/^(?:preferred qualifications|nice to haves?|qualifications|benefits|about us|job overview)$/i.test(fragment)) { heading = /^(?:nice|preferred)/i.test(fragment) ? "PREFERRED" : "MENTIONED"; continue; }
+    if (/^(?:required qualifications|must haves?|requirements|responsibilities)$/i.test(fragment)) { heading = "REQUIRED"; continue; }
+    let p = priority(fragment, heading);
     if (p === "MENTIONED" && /required|must/i.test(fragment) && /preferred|optional|nice.to.have/i.test(fragment)) alternativesUnresolved = true;
     const found = terms.filter(t => t.pattern.test(fragment));
-    // Either/or wording must not invent several mandatory skill gaps.
-    const alternatives = found.length > 1 && /\bor\b|at least one|one of|such as|e\.g\./i.test(fragment);
-    if (alternatives) alternativesUnresolved = true;
-    const groups = alternatives ? [found] : found.map(t => [t]);
+    // Only neighboring alternatives form a group; an "or" elsewhere must not merge every capability.
+    const ordered = found.map(term => ({term, match: fragment.match(term.pattern)!})).sort((a,b) => a.match.index! - b.match.index!);
+    const groups: Term[][] = [];
+    for (let i = 0; i < ordered.length; i++) {
+      const current = ordered[i];
+      const prior = ordered[i - 1];
+      const connector = prior ? fragment.slice(prior.match.index! + prior.match[0].length, current.match.index) : "";
+      if (prior && /^\s*(?:or|\/)\s*$/i.test(connector)) { groups[groups.length - 1].push(current.term); alternativesUnresolved = true; }
+      else groups.push([current.term]);
+    }
+    if (/at least one|one of|such as|e\.g\./i.test(fragment)) { p = "MENTIONED"; alternativesUnresolved = true; }
     for (const group of groups) {
       if (!group.length || /\b(?:no|without) (?:prior )?experience (?:with|in)|no .{0,30}required/i.test(fragment)) continue;
       const claimed = group.some(t => profile.skills.some(s => t.pattern.test(s)));

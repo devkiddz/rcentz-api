@@ -177,6 +177,7 @@ assert.equal(
 );
 const policy = load("server/opportunities/policy.ts");
 const fit = load("server/opportunities/fit.ts", {
+  "@/features/opportunities/lib/source-context": load("features/opportunities/lib/source-context.ts"),
   "@/features/opportunities/lib/project-evidence": load("features/opportunities/lib/project-evidence.ts"),
   "./policy": policy,
   "@/features/opportunities/lib/matching": matching,
