@@ -1,3 +1,4 @@
+import { retentionSnapshot } from "@/server/opportunities/retention";
 import { isProjectEvidence } from "@/features/opportunities/lib/project-evidence";
 import {
   readOpportunityPage,
@@ -14,6 +15,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 const operationScopes: Record<string, string> = {
   list: "opportunities:read",
+  retention: "opportunities:read",
   detail: "opportunities:read",
   profile: "opportunities:write",
   decision: "opportunities:write",
@@ -62,6 +64,10 @@ async function handle(request: Request) {
     );
     if (!actor.ok) return actor.response;
     const ownerId = actor.userId;
+    if (payload.operation === "retention") {
+      if (payload.preview !== undefined && typeof payload.preview !== "boolean") return apiError("INVALID_PREVIEW", "Preview must be a boolean", 400);
+      return apiSuccess(await retentionSnapshot(ownerId, payload.preview === true));
+    }
     if (payload.operation === "detail") {
       if (
         typeof payload.id !== "string" ||

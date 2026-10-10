@@ -193,6 +193,7 @@ prisma.opportunity = {
 };
 const matching = load("features/opportunities/lib/matching.ts");
 const route = load("app/api/v1/internal/systems/opportunities/route.ts", {
+  "@/server/opportunities/retention": {retentionSnapshot: async ownerId => {assert.equal(ownerId, "central-owner"); return {deletionPerformed:false};}},
   "@/features/opportunities/lib/project-evidence": load("features/opportunities/lib/project-evidence.ts"),
   "@/lib/prisma": { prisma },
   "@/server/api/responses/api-response": responses,
@@ -385,3 +386,10 @@ assert.equal((await route.POST(request({...evidenceProfile,projectEvidence:[{nam
 assert.equal((await route.POST(request(evidenceProfile))).status,200);
 assert.equal(evidenceWrites,2);
 console.log("PASS: project evidence rejected before writes, owner scoped, explicit fields sanitized and older clients preserve references.");
+
+identity.scopes = ["opportunities:write"];
+assert.equal((await route.POST(request({operation:"retention",preview:true}))).status,403);
+identity.scopes = ["opportunities:read"];
+assert.equal((await route.POST(request({operation:"retention",preview:"yes"}))).status,400);
+assert.equal((await route.POST(request({operation:"retention",preview:true,ownerId:"other-owner"}))).status,200);
+console.log("PASS: retention requires read scope and ignores supplied owner IDs.");
