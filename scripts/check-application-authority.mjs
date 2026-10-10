@@ -199,6 +199,8 @@ const review = load("server/opportunities/career-review.ts", {
 });
 const route = load("app/api/v1/internal/systems/opportunities/route.ts", {
   "@/server/opportunities/career-review": review,
+  "@/server/opportunities/refresh-priorities": {refreshPriorities: async owner=>{assert.equal(owner,"central-owner");return {checked:1,changed:0};}},
+  "@/server/opportunities/contacts": {readContacts: async owner=>{assert.equal(owner,"central-owner");return {contacts:[]};}},
   "@/server/opportunities/retention": {retentionSnapshot: async ownerId => {assert.equal(ownerId, "central-owner"); return {deletionPerformed:false};}},
   "@/features/opportunities/lib/source-context": load("features/opportunities/lib/source-context.ts"),
   "@/features/opportunities/lib/project-evidence": load("features/opportunities/lib/project-evidence.ts"),
@@ -342,7 +344,7 @@ prisma.opportunity.findFirst = async (q) => {
   assert.ok(q.select.id);
   assert.ok(q.select.profile.select.projectEvidence);
   return q.where.id === "owned"
-    ? { id: "owned", title: "Frontend Developer", source: "REMOTIVE", url: "https://example.com/job", description: ("Must haves: React and TypeScript required. " + "x".repeat(7000)), status: "ARCHIVED", quarantined: false, assessment: {}, profile: detailProfile }
+    ? { id: "owned", title: "Frontend Developer", kind:"EMPLOYMENT", source: "REMOTIVE", url: "https://example.com/job", description: ("Must haves: React and TypeScript required. " + "x".repeat(7000)), status: "ARCHIVED", quarantined: false, assessment: {}, profile: detailProfile }
     : null;
 };
 identity.scopes = ["opportunities:write"];
@@ -411,3 +413,11 @@ identity.scopes = ["opportunities:read"];
 assert.equal((await route.POST(request({operation:"retention",preview:"yes"}))).status,400);
 assert.equal((await route.POST(request({operation:"retention",preview:true,ownerId:"other-owner"}))).status,200);
 console.log("PASS: retention requires read scope and ignores supplied owner IDs.");
+
+identity.scopes = ["opportunities:write"];
+assert.equal((await route.POST(request({operation:"contacts",ownerId:"other"}))).status,403);
+assert.equal((await route.POST(request({operation:"refresh",ownerId:"other"}))).status,200);
+identity.scopes = ["opportunities:read"];
+assert.equal((await route.POST(request({operation:"contacts",ownerId:"other"}))).status,200);
+assert.equal((await route.POST(request({operation:"refresh",ownerId:"other"}))).status,403);
+console.log("PASS: contacts require read scope, priority refresh requires write scope, supplied owners ignored.");

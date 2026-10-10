@@ -1,9 +1,11 @@
+import { opportunityIntent } from "@/features/opportunities/lib/intent";
 import { searchWeb } from "./search";
 import { createHash } from "node:crypto";
 import type { Listing } from "@/features/opportunities/lib/matching";
 import { collectRemotive } from "./remotive";
 import { plain, publicUrl, sourceJson } from "./web";
 export type SourceListing = Listing & {
+  research?: unknown;
   source: string;
   kind: string;
   publishedKnown: boolean;
@@ -46,11 +48,7 @@ function row(
     const publishedAt = date(published);
     return {
       source,
-      kind:
-        kind === "EMPLOYMENT" &&
-        /contract|freelance/i.test(text(type) + " " + text(title))
-          ? "CONTRACT"
-          : kind,
+      kind: opportunityIntent({title: text(title), description: text(description), kind}),
       publishedKnown: !!publishedAt,
       externalId: String(
         id || createHash("sha256").update(u.href).digest("hex"),
@@ -172,11 +170,11 @@ export function researchQueries(roles: string[], skills: string[]) {
       kind: "EMPLOYMENT",
     })),
     {
-      q: `${stack} developer contract freelance project hiring`,
+      q: `software web development "seeking vendor" OR "request for quotation" OR "development partner" -jobs -vacancies -salary`,
       kind: "CONTRACT",
     },
     {
-      q: `${stack} software development request for proposal tender`,
+      q: `website portal software development "request for proposal" OR "invitation to bid" OR "tender" -jobs -careers`,
       kind: "PROJECT",
     },
     {
@@ -283,9 +281,7 @@ export async function discover(
         (await collectRemotive()).map((v) => ({
           ...v,
           source: "REMOTIVE",
-          kind: /contract|freelance/i.test(v.jobType)
-            ? "CONTRACT"
-            : "EMPLOYMENT",
+          kind: "EMPLOYMENT",
           publishedKnown: true,
         })),
     },

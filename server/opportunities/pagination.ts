@@ -1,4 +1,4 @@
-import type { PrismaClient, Prisma } from "@/generated/prisma/client";
+import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 
 export const opportunityPageSize = 6;
 export function pageWindow(total: number, requested: unknown) {
@@ -60,13 +60,24 @@ export async function readOpportunityPage(
     async (tx) => {
       const total = await tx.opportunity.count({ where });
       const pagination = pageWindow(total, requested);
-      const jobs = await tx.opportunity.findMany({
-        where,
-        select: opportunitySelect,
-        orderBy: [{ score: "desc" }, { publishedAt: "desc" }, { id: "asc" }],
-        take: opportunityPageSize,
-        skip: (pagination.page - 1) * opportunityPageSize,
-      });
+      const tiers = [4, 3, 2, 1, 0];
+      const jobs: Prisma.OpportunityGetPayload<{select: typeof opportunitySelect}>[] = [];
+      let skip = (pagination.page - 1) * opportunityPageSize;
+      for (const tier of tiers) {
+        const tierFilter: Prisma.OpportunityWhereInput = tier === 0
+          ? { OR: [{assessment: {path:["priority"],equals:Prisma.AnyNull}}, { NOT: { OR: [1,2,3,4].map(value => ({assessment: {path: ["priority"], equals: value}})) } }] }
+          : { assessment: { path: ["priority"], equals: tier } };
+        const scoped = { ...where, ...tierFilter };
+        const count = await tx.opportunity.count({where: scoped});
+        if (skip >= count) { skip -= count; continue; }
+        const part = await tx.opportunity.findMany({
+          where: scoped, select: opportunitySelect,
+          orderBy: [{ score: "desc" }, { publishedAt: "desc" }, { id: "asc" }],
+          take: opportunityPageSize - jobs.length, skip,
+        });
+        jobs.push(...part); skip = 0;
+        if (jobs.length === opportunityPageSize) break;
+      }
       return { jobs, pagination };
     },
     { isolationLevel: "RepeatableRead", maxWait: 5000, timeout: 10000 },

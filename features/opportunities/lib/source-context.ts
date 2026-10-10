@@ -1,4 +1,4 @@
-type SourcePage = { source: string; url: string; title: string };
+type SourcePage = { source: string; url: string; title: string; research?: unknown };
 export function sourceContext(page: SourcePage): "RESULTS_PAGE" | "DISCOVERY_SNIPPET" | "VACANCY_TEXT" {
   let url: URL;
   try { url = new URL(page.url); } catch { return "DISCOVERY_SNIPPET"; }
@@ -12,5 +12,10 @@ export function sourceContext(page: SourcePage): "RESULTS_PAGE" | "DISCOVERY_SNI
     (isHost("glassdoor.com") && /^\/job(?:s|-listing)/.test(path) && !/job-listing/.test(path));
   const resultsTitle = /\b(?:job search|search results|jobs (?:in|near|available)|\d[\d,]* (?:open |available )?(?:jobs|vacancies))\b/i.test(page.title) || /\bjobs\s*$/i.test(page.title);
   if (knownResults || (page.source === "WEB_SEARCH" && resultsTitle)) return "RESULTS_PAGE";
+  const research = page.research;
+  if (research && typeof research === "object" && "vacancy" in research) {
+    const vacancy = research.vacancy;
+    if (vacancy && typeof vacancy === "object" && "url" in vacancy && vacancy.url === url.href && "fullText" in vacancy && vacancy.fullText === true) return "VACANCY_TEXT";
+  }
   return ["WEB_SEARCH", "HACKER_NEWS"].includes(page.source) ? "DISCOVERY_SNIPPET" : "VACANCY_TEXT";
 }

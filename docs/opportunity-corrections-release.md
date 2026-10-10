@@ -1,0 +1,25 @@
+# Opportunity buyer discovery, evidence priority and contacts
+
+Release baseline: API 36d4475; Systems 8932a97. No schema migration, additional dependency or new key is required.
+
+## Resulting behavior
+
+1. Six-item review pages use persisted evidence tiers before keyword overlap. The order is: contribution-backed pursue with fetched company/ATS publication, explicit Nigerian/worldwide location wording and a future published expiry; fetched company/ATS vacancies needing clarification or a fetched buyer request; individual source text / possible buyer requests; discovery snippets or unconfirmed prospects; skip/expired records. Quarantine remains a separate queue. Published source evidence never authenticates an employer or recruiter.
+2. Bounded research resolves one JobPosting from the original discovery URL. Multiple postings, results pages, blocked pages and short text are not promoted to vacancy evidence. Full description and named hiring organization can replace a discovery snippet. Company-domain publication and known ATS publication are distinguished from other public pages. A declared company website can be checked for a link back to the vacancy and public contacts, within the existing eight-trail enrichment budget. Robots, public-network/DNS checks, timeout, content limits and redirect rejection remain enforced. Negative Nigerian eligibility wording overrides broad wording.
+3. Employment feeds remain hiring territory. Contract developer and project-manager vacancies are employment, not buyer demand. Search labels do not establish intent.
+4. Two web searches target requests for quotations, vendors, development partners, RFPs, tenders and invitations to bid. Explicit service demand and employee requirements are assessed separately. Software/website/portal buyer requests can enter review without naming React or an employee experience minimum. Templates, agency marketing and weak matches become unconfirmed prospects; new unconfirmed prospects are not admitted. This is a conservative phrase classifier, not a complete intent model. Some genuine briefs will be missed and every buyer's issuer, deadline, eligibility and terms still need review.
+5. A private Contacts page shows six published contact references per page, the linked opportunity, mailbox-purpose inference, source, observation date and copy action. Procurement/tender/bid/vendor/supplier role addresses join recruitment and business addresses; visible mailto addresses are included. Same opportunity/email/source duplicates are removed. Different opportunity or source references can repeat an address. Archived and quarantined records are excluded from this view; existing detail evidence remains accessible through its guarded route. Company association, address ownership and deliverability are unverified. No messages are sent.
+
+## Existing data and activation
+
+Install/verify source in both repositories. Preview and run Checkpoint-Corrections.ps1 to push API to origin/main and Systems to systems/main. Deploy API first, then Systems.
+
+Open Job Finder and click Refresh priorities once. This uses your current saved profile and stored research, reads in batches of 100, and updates only the derived assessment and inferred opportunity kind. It performs no external searches, deletions, applications or messages and leaves notes, saved statuses and decision events untouched. Concurrently changed records are skipped by an updatedAt predicate; rerun to include them. Refresh again after profile changes. Records without a derived tier stay at the end until refreshed.
+
+Future collection researches available pages on the current schedule and cooldown, with at most 25 new records and eight enrichment trails. Refresh does not bypass that cooldown or instantly fetch all legacy leads. Lack of a contact or a pursue recommendation is a valid outcome; the software does not invent either. Existing retention enablement is unchanged. Source edits are backed up by the installer; no database history repair is included.
+
+## Validation and acceptance
+
+TypeScript, lint, both production builds and existing authority, bridge, detail, settings, analytics, retention and collection checks passed. New checks cover buyer/hiring separation, template/prospect filtering, service-scope admission, tier ordering, short and mixed posting caution, Nigerian exclusion wording, published procurement provenance, scoped non-destructive refresh and six-contact response validation. Additional local PostgreSQL checks exercised real Prisma ranking with missing legacy JSON tiers and the contact CTE with duplicate, cross-owner, archived and quarantined fixtures. These local checks do not constitute a production authentication or visual-browser audit.
+
+After deployment, confirm that a saved Project Manager vacancy moves to Employment after refresh, a true RFP remains buyer territory, the list has six entries per page, saved notes/statuses stay intact, Contacts links to their exact opportunity/source, and unauthorized accounts cannot load the contacts page. A future collection should add buyer requests, with unresolved source evidence labelled clearly.

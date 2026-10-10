@@ -11,7 +11,7 @@ const js = ts.transpileModule(
   },
 ).outputText;
 const module = { exports: {} };
-new Function("module", "exports", js)(module, module.exports);
+new Function("require", "module", "exports", js)(()=>({Prisma:{AnyNull:"ANY_NULL"}}),module, module.exports);
 const { readOpportunityPage, pageWindow } = module.exports;
 for (const value of [
   -1,
@@ -34,6 +34,7 @@ const rows = Array.from({ length: 14 }, (_, i) => ({
   status: "NEW",
   kind: "EMPLOYMENT",
   quarantined: false,
+  assessment: {priority: i===0 ? undefined : i<2 ? 1 : 3},
 }));
 rows.push(
   { ...rows[0], id: "other", profileId: "other", score: 999 },
@@ -46,6 +47,8 @@ const match = (r, w) =>
   r.profileId === w.profileId &&
   r.quarantined === w.quarantined &&
   (!w.kind || r.kind === w.kind) &&
+  (!w.assessment || r.assessment.priority===w.assessment.equals) &&
+  (!w.OR || r.assessment.priority===undefined || !w.OR[1].NOT.OR.some(x=>r.assessment.priority===x.assessment.equals)) &&
   (typeof w.status === "string"
     ? r.status === w.status
     : r.status !== w.status.not);
@@ -57,7 +60,7 @@ const db = {
         count: async ({ where }) => rows.filter((r) => match(r, where)).length,
         findMany: async (q) => {
           reads++;
-          assert.equal(q.take, 6);
+          assert.ok(q.take <= 6 && q.take > 0);
           assert.equal(q.where.profileId, "owner");
           assert.deepEqual(q.orderBy, [
             { score: "desc" },
@@ -111,7 +114,9 @@ assert.equal(
   3,
 );
 await assert.rejects(readOpportunityPage(db, "", {}, 1), /Owner profile/);
-assert.equal(reads, 7);
+assert.ok(reads >= 7);
+assert.equal(pages[0].jobs[0].assessment.priority,3);
+assert.equal(pages[2].jobs.at(-1).assessment.priority,undefined);
 console.log(
   "PASS: six-row database limit, stable ranked pagination, owner isolation, filtered counts, empty/last pages and oversized page clamping.",
 );

@@ -30,6 +30,11 @@ export function admission(
     hours > profile.maxWeeklyHours
   )
     return "skip";
+  if (listing.kind !== "EMPLOYMENT") {
+    // Buyer briefs name deliverables rather than an employee's stack or years.
+    const scope = /\b(?:website|web app|software|portal|platform|application|e-commerce|ecommerce|digital system|development services)\b/i.test(listing.title + " " + listing.description);
+    return ["PROJECT","CONTRACT"].includes(listing.kind) && scope && fit.score >= 20 ? "priority" : "skip";
+  }
   const requirements = [
     ...listing.description.matchAll(
       /\b(\d{1,2})(?:\s*[-–]\s*\d{1,2})?\s*\+?\s*years?\s+(?:of\s+)?(?:professional\s+|commercial\s+|relevant\s+|frontend\s+|software\s+|development\s+|engineering\s+)*experience/gi,

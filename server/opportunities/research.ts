@@ -1,8 +1,12 @@
+import { sourceContext } from "@/features/opportunities/lib/source-context";
+import { opportunityIntent } from "@/features/opportunities/lib/intent";
 import { searchWeb } from "./search";
 import { createHash } from "node:crypto";
 import { plain, publicPage, publicUrl } from "./web";
 import type { SourceListing } from "./sources";
 export type Research = {
+  vacancy?: { url: string; fullText: true; publisher: "COMPANY_PAGE" | "ATS_PAGE" | "PUBLIC_PAGE"; eligibility: "EXPLICIT" | "UNKNOWN"; open: "NOT_EXPIRED" | "UNKNOWN" | "EXPIRED" };
+  demand?: { confirmed: boolean; url: string };
   risk: "HIGH" | "REVIEW" | "UNKNOWN";
   flags: { reason: string; evidence: string }[];
   contacts: {
@@ -65,7 +69,8 @@ export function spamSignals(text: string) {
   });
 }
 export function publicContacts(text: string, sourceUrl: string) {
-  const visible = plain(text);
+  const mailtos = [...text.matchAll(/href=["']mailto:([^"'?]+)(?:[^"']*)["']/gi)].flatMap(m=>{try{return [decodeURIComponent(m[1])];}catch{return [];}});
+  const visible = plain(text) + " " + mailtos.join(" ");
   const emails = [
     ...new Set(
       (visible.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map(
@@ -76,7 +81,7 @@ export function publicContacts(text: string, sourceUrl: string) {
   return emails
     .filter(
       (e) =>
-        /^(careers?|jobs?|hr|talent|recruit(?:ment|ing)?|hiring|hello|info|contact|business|sales|partnerships?)[._+-]?/i.test(
+        /^(careers?|jobs?|hr|talent|recruit(?:ment|ing)?|hiring|hello|info|contact|business|sales|partnerships?|procurement|tenders?|bids?|purchasing|vendors?|suppliers?)[._+-]?/i.test(
           e,
         ) &&
         !/(?:example\.com|sentry\.io|wixpress\.com|remotive\.com|jobicy\.com|arbeitnow\.com)$/.test(
@@ -141,51 +146,50 @@ async function allowedByRobots(url: string) {
     return false;
   }
 }
+export function explicitEligibility(regions: string, description: string) {
+  if (/\b(?:except|excluding|not (?:available|open)|cannot (?:hire|accept)).{0,60}nigeria|nigeria.{0,30}(?:excluded|not eligible)/i.test(description)) return false;
+  return /nigeria/i.test(regions) || /\b(?:worldwide|anywhere in the world|all countries|applicants (?:from|in) nigeria|candidates (?:from|in) nigeria)\b/i.test(description);
+}
 export function jobPosting(html: string) {
-  for (const match of html.matchAll(
-    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
-  )) {
+  const postings: Record<string, unknown>[] = [];
+  for (const match of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
       const parsed: unknown = JSON.parse(match[1]);
       const roots = Array.isArray(parsed) ? parsed : [parsed];
       for (const root of roots) {
         if (!root || typeof root !== "object") continue;
         const r = root as Record<string, unknown>;
-        const nodes = Array.isArray(r["@graph"]) ? r["@graph"] : [r];
-        for (const node of nodes) {
+        for (const node of Array.isArray(r["@graph"]) ? r["@graph"] : [r]) {
           if (!node || typeof node !== "object") continue;
           const n = node as Record<string, unknown>;
-          if (
-            n["@type"] !== "JobPosting" ||
-            typeof n.title !== "string" ||
-            typeof n.description !== "string"
-          )
-            continue;
-          const org =
-            n.hiringOrganization && typeof n.hiringOrganization === "object"
-              ? (n.hiringOrganization as Record<string, unknown>)
-              : {};
-          return {
-            title: plain(n.title).slice(0, 250),
-            description: plain(n.description),
-            company:
-              typeof org.name === "string"
-                ? plain(org.name).slice(0, 250)
-                : null,
-          };
+          if (n["@type"] === "JobPosting" && typeof n.title === "string" && typeof n.description === "string") postings.push(n);
         }
       }
-    } catch {
-      /* Invalid structured data is not executed or trusted. */
-    }
+    } catch { /* Untrusted structured data is not executed. */ }
   }
-  return null;
+  // A page with multiple postings cannot supply one vacancy's requirements.
+  if (postings.length !== 1) return null;
+  const n = postings[0];
+  const org = n.hiringOrganization && typeof n.hiringOrganization === "object" ? n.hiringOrganization as Record<string,unknown> : {};
+  const regions = JSON.stringify(n.applicantLocationRequirements || "");
+  return {
+    title: plain(n.title as string).slice(0,250), description: plain(n.description as string),
+    company: typeof org.name === "string" ? plain(org.name).slice(0,250) : null,
+    companyUrl: typeof org.sameAs === "string" ? org.sameAs : typeof org.url === "string" ? org.url : null,
+    regions, validThrough: typeof n.validThrough === "string" ? n.validThrough : null,
+    location: n.jobLocationType === "TELECOMMUTE" ? "Remote" : null,
+  };
 }
 export async function investigate(
   listing: SourceListing,
   fetchPages: boolean,
 ): Promise<Research> {
   const contacts = publicContacts(listing.description, listing.url);
+  let vacancy: Research["vacancy"] = /^(GREENHOUSE|LEVER):/.test(listing.source) && listing.description.length >= 250
+    ? {url:listing.url,fullText:true,publisher:"ATS_PAGE",eligibility:"UNKNOWN",open:"UNKNOWN"} : undefined;
+  let companyUrlToCheck: string | null = null;
+  let demand: Research["demand"];
+
   let full = listing.description;
   const pages: Research["pages"] = [];
   const candidateUrls = [listing.url];
@@ -197,7 +201,7 @@ export async function investigate(
   ) {
     try {
       const p = (await searchWeb(
-        `"${listing.company.slice(0, 100)}" official company careers contact email`,
+        `"${listing.company.slice(0, 100)}" official company ${listing.kind === "EMPLOYMENT" ? "careers" : "procurement tenders"} contact email`,
         3,
       )) as { web?: { results?: { url?: string }[] } };
       for (const result of p.web?.results || [])
@@ -230,10 +234,28 @@ export async function investigate(
         });
         if (page.status !== 200) continue;
         const posting = jobPosting(page.text);
-        if (posting && listing.source === "WEB_SEARCH") {
+        if (posting && url === listing.url && posting.company && posting.description.length >= 250 && sourceContext(listing) !== "RESULTS_PAGE") {
           listing.title = posting.title;
           listing.description = posting.description;
-          if (posting.company) listing.company = posting.company;
+          listing.company = posting.company;
+          if (posting.location) listing.location = posting.location;
+          let publisher: NonNullable<Research["vacancy"]>["publisher"] = "PUBLIC_PAGE";
+          try {
+            if (posting.companyUrl && new URL(posting.companyUrl).hostname === new URL(url).hostname) publisher = "COMPANY_PAGE";
+          } catch { /* Company identity stays unconfirmed. */ }
+          if (["jobs.lever.co", "boards.greenhouse.io", "job-boards.greenhouse.io"].includes(new URL(url).hostname)) publisher = "ATS_PAGE";
+          companyUrlToCheck = posting.companyUrl;
+          const expiry = posting.validThrough ? Date.parse(posting.validThrough) : NaN;
+          vacancy = {url, fullText: true, publisher,
+            eligibility: explicitEligibility(posting.regions, posting.description) ? "EXPLICIT" : "UNKNOWN",
+            open: Number.isFinite(expiry) ? expiry < Date.now() ? "EXPIRED" : "NOT_EXPIRED" : "UNKNOWN"};
+        }
+        if (url === listing.url && listing.kind !== "EMPLOYMENT") {
+          const pageText = plain(page.text);
+          if (opportunityIntent({...listing, description: pageText}) !== "PROSPECT" && opportunityIntent({...listing, description: pageText}) !== "EMPLOYMENT") {
+            listing.description = pageText;
+            demand = {confirmed: true, url};
+          }
         }
         full += " " + plain(page.text);
         contacts.push(...publicContacts(page.text, url));
@@ -271,6 +293,20 @@ export async function investigate(
         });
       }
     }
+  if (fetchPages && companyUrlToCheck && vacancy) {
+    try {
+      const companyUrl = publicUrl(companyUrlToCheck).href;
+      if (companyUrl !== listing.url && await allowedByRobots(companyUrl)) {
+        const page = await publicPage(companyUrl);
+        pages.push({url:companyUrl,status:page.status===200 ? "Employer website retrieved; association not authenticated" : `HTTP ${page.status}`});
+        if (page.status===200) {
+          contacts.push(...publicContacts(page.text,companyUrl));
+          const linked = [...page.text.matchAll(/href=["']([^"']+)["']/gi)].some(m=>{try{return new URL(m[1],companyUrl).href===listing.url;}catch{return false;}});
+          if (linked) vacancy.publisher="COMPANY_PAGE";
+        }
+      }
+    } catch { /* Failed employer research never establishes association. */ }
+  }
   const flags = spamSignals(full);
   if (/(?:telegram|whatsapp).{0,80}(?:only|immediately|urgent)/i.test(full))
     flags.push({
@@ -281,6 +317,8 @@ export async function investigate(
   const unknown =
     listing.source === "WEB_SEARCH" || listing.source === "HACKER_NEWS";
   return {
+    ...(vacancy ? {vacancy} : {}),
+    ...(demand ? {demand} : {}),
     risk: flags.length ? "HIGH" : unknown ? "REVIEW" : "UNKNOWN",
     flags,
     contacts: [

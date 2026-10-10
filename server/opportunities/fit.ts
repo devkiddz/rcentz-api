@@ -19,7 +19,7 @@ export function careerFit(
   profile: CareerProfile,
   research: Research,
 ) {
-  const resultsPage = sourceContext(listing) === "RESULTS_PAGE";
+  const resultsPage = sourceContext({...listing, research}) === "RESULTS_PAGE";
   const base = assess(listing, profile.skills, profile.experienceYears);
   const a = base.assessment;
   const text = (listing.title + " " + listing.description).toLowerCase();
@@ -103,7 +103,7 @@ export function careerFit(
   evidence.push(...grounding.relevant.map(p=>`Owner-recorded project: ${p.name} (${p.url}). Personal contribution: ${p.contribution}. Reference and ownership have not been independently verified.`));
   if(grounding.missing.length) unknowns.push("No recorded project example for these listing-matched skills: " + grounding.missing.join(", ") + ". This is missing evidence, not proof you lack the skill.");
   if(!grounding.relevant.length) unknowns.push("No relevant project references are recorded; the assessment currently rests on listing/profile overlap.");
-  const score = Math.max(
+  const employeeScore = Math.max(
     0,
     Math.min(
       100,
@@ -115,7 +115,9 @@ export function careerFit(
           : 0),
     ),
   );
-  const verdict =
+  const buyer = listing.kind !== "EMPLOYMENT";
+  const score = buyer ? listing.kind === "PROSPECT" ? 15 : 50 : employeeScore;
+  const verdict = buyer ? (listing.kind === "PROSPECT" ? "Need unconfirmed — prospect only" : "Buyer request — confirm issuer, scope and terms") :
     research.risk === "HIGH"
       ? "Quarantine — risk evidence needs review"
       : score >= 50 && !concerns.length

@@ -68,7 +68,13 @@ await assert.rejects(
 assert.equal(dnsCalls, 1);
 assert.equal(requests, 0);
 const matching = load("features/opportunities/lib/matching.ts");
+const intent = load("features/opportunities/lib/intent.ts");
+const context = load("features/opportunities/lib/source-context.ts");
+const reviewModule = load("server/opportunities/career-review.ts", {"@/features/opportunities/lib/source-context":context,"@/features/opportunities/lib/project-evidence":load("features/opportunities/lib/project-evidence.ts"),"./policy":load("server/opportunities/policy.ts")});
+const priorities = load("server/opportunities/priority.ts", {"@/features/opportunities/lib/source-context":context,"@/features/opportunities/lib/intent":intent,"./career-review":reviewModule});
 const research = load("server/opportunities/research.ts", {
+  "@/features/opportunities/lib/source-context": context,
+  "@/features/opportunities/lib/intent": intent,
   "node:crypto": crypto,
   "./web": web,
   "./search": {
@@ -124,6 +130,7 @@ assert.equal(
   null,
 );
 const sources = load("server/opportunities/sources.ts", {
+  "@/features/opportunities/lib/intent": intent,
   "node:crypto": crypto,
   "./web": web,
   "./search": { searchWeb: () => {} },
@@ -304,6 +311,7 @@ const collector = load("server/opportunities/collector.ts", {
   "@/lib/prisma": { prisma },
   "./fit": fit,
   "./policy": policy,
+  "./priority": priorities,
   "./research": research,
   "./sources": {
     discover: async () => {
@@ -398,8 +406,8 @@ feed = [
     kind: "PROJECT",
     externalId: "project",
     url: "https://company.example/tender/project",
-    title: "Web development tender",
-    description: "React Next.js TypeScript project request",
+    title: "RFP for web development services",
+    description: "Request for proposal: web application development in React Next.js TypeScript. Submit your proposal.",
     location: "Not established",
   },
 ];
@@ -556,6 +564,7 @@ const failedCollector = load("server/opportunities/collector.ts", {
   "@/lib/prisma": { prisma },
   "./fit": fit,
   "./policy": policy,
+  "./priority": priorities,
   "./research": research,
   "./sources": {
     discover: async () => [
@@ -586,6 +595,7 @@ const manyBatches = Array.from({ length: 15 }, (_, index) => ({
     ...strong,
     source: index === 14 ? "WEB_SEARCH" : "BOARD:" + index,
     kind: index === 14 ? "PROJECT" : "EMPLOYMENT",
+    ...(index === 14 ? {title:"RFP for web application development",description:"Request for proposal: React Next.js TypeScript web application development. Submit your proposal."} : {}),
     externalId: "fair-" + index + "-" + i,
     url: "https://company.example/jobs/fair-" + index + "-" + i,
   })),
@@ -595,6 +605,7 @@ const fairCollector = load("server/opportunities/collector.ts", {
   "@/lib/prisma": { prisma },
   "./fit": fit,
   "./policy": policy,
+  "./priority": priorities,
   "./research": research,
   "./sources": { discover: async () => manyBatches },
 });

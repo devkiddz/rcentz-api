@@ -1,3 +1,5 @@
+import { refreshPriorities } from "@/server/opportunities/refresh-priorities";
+import { readContacts } from "@/server/opportunities/contacts";
 import { reviewCareer } from "@/server/opportunities/career-review";
 import { retentionSnapshot } from "@/server/opportunities/retention";
 import { isProjectEvidence } from "@/features/opportunities/lib/project-evidence";
@@ -16,6 +18,8 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 const operationScopes: Record<string, string> = {
   list: "opportunities:read",
+  contacts: "opportunities:read",
+  refresh: "opportunities:write",
   retention: "opportunities:read",
   detail: "opportunities:read",
   profile: "opportunities:write",
@@ -65,6 +69,8 @@ async function handle(request: Request) {
     );
     if (!actor.ok) return actor.response;
     const ownerId = actor.userId;
+    if (payload.operation === "refresh") return apiSuccess(await refreshPriorities(ownerId));
+    if (payload.operation === "contacts") return apiSuccess(await readContacts(ownerId, payload.page));
     if (payload.operation === "retention") {
       if (payload.preview !== undefined && typeof payload.preview !== "boolean") return apiError("INVALID_PREVIEW", "Preview must be a boolean", 400);
       return apiSuccess(await retentionSnapshot(ownerId, payload.preview === true));
@@ -231,7 +237,7 @@ async function handle(request: Request) {
         : undefined;
     const kind =
       typeof payload.kind === "string" &&
-      ["EMPLOYMENT", "CONTRACT", "PROJECT"].includes(payload.kind)
+      ["EMPLOYMENT", "CONTRACT", "PROJECT", "PROSPECT"].includes(payload.kind)
         ? payload.kind
         : undefined;
     const paged = payload.contractVersion === 3;
@@ -261,7 +267,7 @@ async function handle(request: Request) {
                   : { quarantined: false }
                 : { source: "REMOTIVE" }),
               ...(typeof payload.kind === "string" &&
-              ["EMPLOYMENT", "CONTRACT", "PROJECT"].includes(payload.kind)
+              ["EMPLOYMENT", "CONTRACT", "PROJECT", "PROSPECT"].includes(payload.kind)
                 ? { kind: payload.kind }
                 : {}),
               ...(status ? { status } : { status: { not: "ARCHIVED" } }),

@@ -60,6 +60,12 @@ function quote(text: string, match: RegExp) {
 }
 // This is a bounded, deterministic evidence review, not an LLM or a credential verifier.
 export function reviewCareer(listing: SourceListing, profile: CareerProfile, quarantined: boolean, now = new Date()): CareerReview {
+  if (listing.kind !== "EMPLOYMENT") return {
+    version: 1, assessedAt: now.toISOString(), recommendation: quarantined ? "QUARANTINE" : "CLARIFY",
+    reason: listing.kind === "PROSPECT" ? "A company need has not been established. This is a prospect, not a confirmed request for work." : "A buyer request was detected. Confirm the issuer, deadline, deliverables, budget and supplier eligibility before preparing a proposal.",
+    coverage: "Service demand and employee career fit are separate assessments. Published demand does not authenticate the issuer.", requirements: [],
+    nextSteps: ["Confirm the buyer's original brief and that submissions remain open.", "Agree deliverables, budget, timeline and payment terms before committing Rcentz capacity."],
+  };
   const context = sourceContext(listing);
   if (context !== "VACANCY_TEXT") return {
     version: 1, assessedAt: now.toISOString(), recommendation: quarantined ? "QUARANTINE" : "CLARIFY",
@@ -133,7 +139,7 @@ export function reviewCareer(listing: SourceListing, profile: CareerProfile, qua
   const requiredGaps = rows.filter(r => r.priority === "REQUIRED" && r.evidence === "GAP" && ["SKILL","RESPONSIBILITY"].includes(r.kind));
   const support = rows.filter(r => r.evidence === "SUPPORTED");
   const requiredUnproven = rows.filter(r => r.priority === "REQUIRED" && ["SKILL","RESPONSIBILITY","QUALIFICATION"].includes(r.kind) && ["UNKNOWN","CLAIMED"].includes(r.evidence));
-  const limited = listing.source === "WEB_SEARCH" || listing.source === "HACKER_NEWS" || text.length < 250;
+  const limited = context !== "VACANCY_TEXT" || text.length < 250;
   let recommendation: CareerReview["recommendation"] = "CLARIFY";
   let reason = "The available evidence is not enough for a confident pursue recommendation. Confirm the requirements and prepare specific contribution examples.";
   if (quarantined) { recommendation="QUARANTINE"; reason="Recruitment risk takes priority over stack fit. Review the risk evidence before pursuing or contacting anyone."; }

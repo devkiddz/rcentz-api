@@ -1,3 +1,4 @@
+import { evidencePriority } from "./priority";
 import {
   admission,
   finderPolicy,
@@ -87,6 +88,7 @@ export async function runCollection(ownerId: string) {
         externalId: true,
         canonicalKey: true,
         research: true,
+        title: true, description: true, company: true, location: true,
         quarantined: true,
       },
     });
@@ -241,7 +243,7 @@ export async function runCollection(ownerId: string) {
                 v.externalId === item.listing.externalId,
             );
           const { source, kind, publishedKnown: _, ...listing } = item.listing;
-          void _;
+          void _; void kind;
           if (
             !item.research.pages.length &&
             prior?.research &&
@@ -264,12 +266,20 @@ export async function runCollection(ownerId: string) {
               flags,
               risk: flags.length ? "HIGH" : previous.risk,
             };
+            if (previous.vacancy?.fullText && previous.vacancy.url === item.listing.url && prior?.description) {
+              item.listing.title = prior.title; item.listing.description = prior.description;
+              item.listing.company = prior.company; item.listing.location = prior.location;
+              listing.title = prior.title; listing.description = prior.description;
+              listing.company = prior.company; listing.location = prior.location;
+            }
           }
           const fit = careerFit(item.listing, profile, item.research);
+          const {kind: correctedKind, ...priority} = evidencePriority(item.listing, profile, item.research, item.research.risk === "HIGH" || !!prior?.quarantined);
           const data = {
             ...listing,
             ...fit,
-            kind,
+            kind: correctedKind,
+            assessment: {...fit.assessment, ...priority},
             canonicalKey: item.key,
             research: item.research,
             quarantined: item.research.risk === "HIGH" || !!prior?.quarantined,
