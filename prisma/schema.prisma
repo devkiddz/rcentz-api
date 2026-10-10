@@ -3674,42 +3674,57 @@ model ApplicationRequestNonce {
 
 // Private opportunity search. Ownership is checked separately from admin access.
 model OpportunityProfile {
-  id              String           @id @default(cuid())
-  ownerId         String           @unique
-  owner           User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  projectEvidence Json @default("[]")
+  careerContext   String                 @default("")
+  targetRoles     String[]               @default(["Frontend Engineer", "Software Developer", "Product Engineer"])
+  homeCountry     String                 @default("Nigeria")
+  relocation      Boolean                @default(true)
+  maxWeeklyHours  Int?
+  researchEnabled Boolean                @default(true)
+  sourceRuns      OpportunitySourceRun[]
+  id              String                 @id @default(cuid())
+  ownerId         String                 @unique
+  owner           User                   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   skills          String[]
-  experienceYears Int              @default(2)
-  enabled         Boolean          @default(false)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  experienceYears Int                    @default(2)
+  enabled         Boolean                @default(false)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
   opportunities   Opportunity[]
   runs            OpportunityRun[]
 }
 
 model Opportunity {
-  id          String             @id @default(cuid())
-  profileId   String
-  profile     OpportunityProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  source      String
-  externalId  String
-  title       String
-  company     String
-  url         String
-  description String
-  location    String
-  salary      String?
-  jobType     String
-  publishedAt DateTime
-  lastSeenAt  DateTime           @default(now())
-  sourceState String             @default("LISTED")
-  score       Int
-  assessment  Json
-  status      String             @default("NEW")
-  notes       String             @default("")
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  kind         String             @default("EMPLOYMENT")
+  canonicalKey String?
+  research     Json?
+  quarantined  Boolean            @default(false)
+  events       OpportunityEvent[]
+  id           String             @id @default(cuid())
+  profileId    String
+  profile      OpportunityProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  source       String
+  externalId   String
+  title        String
+  company      String
+  url          String
+  description  String
+  location     String
+  salary       String?
+  jobType      String
+  publishedAt  DateTime
+  lastSeenAt   DateTime           @default(now())
+  sourceState  String             @default("LISTED")
+  score        Int
+  assessment   Json
+  status       String             @default("NEW")
+  notes        String             @default("")
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
 
   @@unique([profileId, source, externalId])
+  @@unique([profileId, canonicalKey])
+  @@index([profileId, quarantined, createdAt])
   @@index([profileId, status, score])
 }
 
@@ -3853,4 +3868,32 @@ model RcentzProductTechnology {
   @@index([productId])
   @@index([publishedAt])
   @@index([sortOrder])
+}
+
+model OpportunityEvent {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  fromStatus    String
+  toStatus      String
+  createdAt     DateTime    @default(now())
+
+  @@index([opportunityId, createdAt])
+}
+
+model OpportunitySourceRun {
+  id         String             @id @default(cuid())
+  profileId  String
+  profile    OpportunityProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  source     String
+  status     String
+  fetched    Int                @default(0)
+  added      Int                @default(0)
+  duplicates Int                @default(0)
+  skipped    Int                @default(0)
+  message    String?
+  startedAt  DateTime           @default(now())
+  finishedAt DateTime?
+
+  @@index([profileId, startedAt])
 }
