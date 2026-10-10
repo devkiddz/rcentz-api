@@ -1,3 +1,4 @@
+import { plain } from "@/features/opportunities/lib/source-text";
 import { refreshPriorities } from "@/server/opportunities/refresh-priorities";
 import { readContacts } from "@/server/opportunities/contacts";
 import { reviewCareer } from "@/server/opportunities/career-review";
@@ -86,10 +87,11 @@ async function handle(request: Request) {
         select: { ...opportunitySelect, profile: { select: { skills: true, projectEvidence: true, experienceYears: true, careerContext: true, targetRoles: true, homeCountry: true, relocation: true, maxWeeklyHours: true } } },
       });
       if (!job) return apiSuccess({ job: null });
-      const { profile, ...publicJob } = job;
+      const { profile, ...storedJob } = job;
+      const publicJob = { ...storedJob, description: plain(storedJob.description) };
       const review = reviewCareer({ ...publicJob, externalId: publicJob.id, publishedKnown: false }, profile, job.quarantined);
       return apiSuccess({
-        job: { ...publicJob, description: job.description.slice(0, 6000), assessment: { ...(record(job.assessment) ? job.assessment : {}), careerReview: review } },
+        job: { ...publicJob, description: plain(job.description).slice(0, 6000), assessment: { ...(record(job.assessment) ? job.assessment : {}), careerReview: review } },
       });
     }
     if (payload.operation === "profile") {
@@ -333,7 +335,7 @@ async function handle(request: Request) {
         : null,
       jobs: jobs.map((job) => ({
         ...job,
-        description: job.description.slice(0, 6000),
+        description: plain(job.description).slice(0, 6000),
       })),
       runs,
       analytics: summary,

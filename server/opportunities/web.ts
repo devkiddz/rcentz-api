@@ -93,18 +93,7 @@ export async function publicPage(
     req.end();
   });
 }
-export function plain(text: string) {
-  return text
-    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;|&#160;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 50000);
-}
+export { plain } from "@/features/opportunities/lib/source-text";
 export async function sourceJson(
   url: string,
   headers: Record<string, string> = {},

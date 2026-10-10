@@ -198,6 +198,7 @@ const review = load("server/opportunities/career-review.ts", {
   "./policy": load("server/opportunities/policy.ts"),
 });
 const route = load("app/api/v1/internal/systems/opportunities/route.ts", {
+  "@/features/opportunities/lib/source-text": load("features/opportunities/lib/source-text.ts"),
   "@/server/opportunities/career-review": review,
   "@/server/opportunities/refresh-priorities": {refreshPriorities: async owner=>{assert.equal(owner,"central-owner");return {checked:1,changed:0};}},
   "@/server/opportunities/contacts": {readContacts: async owner=>{assert.equal(owner,"central-owner");return {contacts:[]};}},
@@ -344,7 +345,7 @@ prisma.opportunity.findFirst = async (q) => {
   assert.ok(q.select.id);
   assert.ok(q.select.profile.select.projectEvidence);
   return q.where.id === "owned"
-    ? { id: "owned", title: "Frontend Developer", kind:"EMPLOYMENT", source: "REMOTIVE", url: "https://example.com/job", description: ("Must haves: React and TypeScript required. " + "x".repeat(7000)), status: "ARCHIVED", quarantined: false, assessment: {}, profile: detailProfile }
+    ? { id: "owned", title: "Frontend Developer", kind:"EMPLOYMENT", source: "REMOTIVE", url: "https://example.com/job", description: ("&lt;p&gt;Must haves: React and TypeScript required.&lt;/p&gt; " + "x".repeat(7000)), status: "ARCHIVED", quarantined: false, assessment: {}, profile: detailProfile }
     : null;
 };
 identity.scopes = ["opportunities:write"];
@@ -361,6 +362,8 @@ assert.equal(detailResponse.status, 200);
 assert.equal(detailResponse.headers.get("Cache-Control"), "no-store");
 const detail = await detailResponse.json();
 assert.equal(detail.data.job.description.length, 6000);
+assert.ok(detail.data.job.description.startsWith("Must haves: React and TypeScript required. "));
+assert.ok(!detail.data.job.description.includes("&lt;"));
 assert.equal(detail.data.job.status, "ARCHIVED");
 assert.equal(detail.data.job.profile, undefined);
 assert.equal(detail.data.job.assessment.careerReview.version, 1);

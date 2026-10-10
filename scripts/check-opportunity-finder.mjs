@@ -10,20 +10,22 @@ function load(file, stubs = {}) {
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
-  const module = { exports: {} };
+  const evaluated = { exports: {} };
   new Function("require", "module", "exports", output)(
     (name) => {
       if (!(name in stubs)) throw Error("Unmocked " + name);
       return stubs[name];
     },
-    module,
-    module.exports,
+    evaluated,
+    evaluated.exports,
   );
-  return module.exports;
+  return evaluated.exports;
 }
 let dnsCalls = 0,
   requests = 0;
+const sourceText = load("features/opportunities/lib/source-text.ts");
 const web = load("server/opportunities/web.ts", {
+  "@/features/opportunities/lib/source-text": sourceText,
   "node:net": net,
   "node:dns/promises": {
     lookup: async () => {
@@ -38,6 +40,15 @@ const web = load("server/opportunities/web.ts", {
     },
   },
 });
+assert.equal(web.plain('&lt;h2&gt;Who we are&lt;/h2&gt; &lt;p&gt;Stripe &amp; partners&lt;/p&gt;'), 'Who we are Stripe & partners');
+assert.equal(web.plain('&amp;lt;p&amp;gt;React &amp;amp; TypeScript&amp;lt;/p&amp;gt;'), 'React & TypeScript');
+assert.equal(web.plain('&#60;p&#62;Nigeria &#x2014; remote&#60;/p&#62;'), 'Nigeria — remote');
+assert.equal(web.plain('&lt;script&gt;unwanted()&lt;/script&gt;&lt;style&gt;bad{}&lt;/style&gt;<p>Safe text</p>'), 'Safe text');
+assert.equal(web.plain('Salary < 5000 &amp; experience > 2; C++; français; &#x1f600;'), 'Salary < 5000 & experience > 2; C++; français; 😀');
+assert.equal(web.plain('&#x110000; &#xD800; &unknown;'), '� � &unknown;');
+assert.equal(web.plain('x'.repeat(300000)).length, 50000);
+assert.equal(web.plain(web.plain('&lt;h2&gt;About Stripe&lt;/h2&gt;')), 'About Stripe');
+console.log('PASS: encoded and double-encoded descriptions, numeric characters, hidden source content, literal comparisons and bounded plain text.');
 for (const ip of [
   "127.0.0.1",
   "10.1.2.3",
