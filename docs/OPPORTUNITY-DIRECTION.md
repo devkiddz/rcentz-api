@@ -1,7 +1,7 @@
 # Rcentz Opportunities - direction and delivery plan
 
 Updated: 10 October 2026 (Africa/Lagos).
-Status: direction agreed; installed content reviewed; final cleanup, push and verification pending.
+Status: OA-00 completed on 10 October 2026; implementation review OA-01 is next.
 
 ## Purpose
 
@@ -63,7 +63,7 @@ These identifiers belong to this upgrade and do not renumber earlier Rcentz mile
 
 | ID | Priority | Milestone | Current state | Completion evidence |
 | --- | --- | --- | --- | --- |
-| OA-00 | First | Align documents and milestones | Installed and reviewed; cleanup and push pending | Updated documents agree; installed changes reviewed and pushed; exact pushed files checked |
+| OA-00 | First | Align documents and milestones | Completed - 10 October 2026 | Updated documents agree; installed changes reviewed and pushed; exact pushed files checked |
 | OA-01 | First | Review and stabilize the existing finder | Pending | Current API and Systems agree; record reads and edits, collection, failed sources and unauthorized access checked; baseline recorded |
 | OA-02 | First | Define one focused company capability | Pending | Existing service and proof reused; private company profile can be created, edited and read through API and Systems; personal profile stays separate |
 | OA-03 | First | Make commercial discovery useful | Pending | Limited supported sources yield clearly classified buyer requests and leads; reasons and gaps visible; employment still works; ownership and saved decisions preserved |
@@ -106,3 +106,14 @@ The main documents' earlier claim that the finder was not implemented is outdate
 This document governs the current Opportunities direction. Master Blueprint owns the wider product vision; Architecture owns responsibilities; Milestones owns progress; Systems Status owns the current handoff.
 
 When scope changes, update all affected documents before implementing it. Historical release notes and older whole-Rcentz milestones remain evidence of earlier work, rather than instructions to override this plan.
+
+## OA-00 completion record
+
+Installed by Dennis, content reviewed, whitespace corrections checked, and both repositories pushed. Exact GitHub files were independently read and matched against the reviewed package. The shared direction document matches in both repositories.
+
+- Systems evidence: `ad744d976ea475acdfba40b38a51378d44d60722` (six documentation files).
+- API evidence: `377c1bc4cd297b43c3f071516dda3cc275468b9b` (shared direction document).
+- Documentation checks: passed. No application build or database change required.
+- Application, browser and deployment behavior: not tested under OA-00; belongs to OA-01 and later launch checks.
+
+These commits establish the verified documentation checkpoint. This completion record is a follow-up documentation change. OA-01 through OA-07 remain pending.
