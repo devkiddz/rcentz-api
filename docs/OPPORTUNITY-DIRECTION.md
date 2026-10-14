@@ -1,7 +1,7 @@
 # Rcentz Opportunities - direction and delivery plan
 
 Updated: 10 October 2026 (Africa/Lagos).
-Status: OA-00 completed on 10 October 2026; implementation review OA-01 is next.
+Status: OA-00 complete; current commercial discovery and review release prepared for installed/deployed acceptance.
 
 ## Purpose
 
@@ -66,8 +66,8 @@ These identifiers belong to this upgrade and do not renumber earlier Rcentz mile
 | OA-00 | First | Align documents and milestones | Completed - 10 October 2026 | Updated documents agree; installed changes reviewed and pushed; exact pushed files checked |
 | OA-01 | First | Review and stabilize the existing finder | In progress - source review and refresh correction prepared | Current API and Systems agree; record reads and edits, collection, failed sources and unauthorized access checked; baseline recorded |
 | OA-02 | First | Define one focused company capability | Pending | Existing service and proof reused; private company profile can be created, edited and read through API and Systems; personal profile stays separate |
-| OA-03 | First | Make commercial discovery useful | Pending | Limited supported sources yield clearly classified buyer requests and leads; reasons and gaps visible; employment still works; ownership and saved decisions preserved |
-| OA-04 | First | Manage pursuit | Pending | Authorized users record stages, notes, proposal/application drafts and outcomes; human review enforced; history survives refresh |
+| OA-03 | First | Make commercial discovery useful | Implemented locally; installation and live acceptance pending | Limited supported sources yield clearly classified buyer requests and leads; reasons and gaps visible; employment still works; ownership and saved decisions preserved |
+| OA-04 | First | Manage pursuit | Commercial stages, assessment/draft notes and history implemented locally; live acceptance pending | Authorized users record stages, notes, proposal/application drafts and outcomes; human review enforced; history survives refresh |
 | OA-05 | Next | Hand won work to delivery | Pending | Commercial win links or creates the right records once; existing project management used; personal employment cannot enter company reporting |
 | OA-06 | Alongside relevant work | Correct interface and printing | Pending; issues reported by user | Existing theme, borders, rings, type, spacing and canvas reused; redundant elements corrected; mobile, desktop, light/dark and print inspected |
 | OA-07 | Launch gate | Verify the first usable release | Pending | Real discovery-to-review-to-pursuit flow tested; permissions checked; deployment checked; source and outcome measures recorded; no blocking issue |
@@ -121,3 +121,7 @@ These commits establish the verified documentation checkpoint. This completion r
 ## OA-01 review
 
 See [OPPORTUNITY-REVIEW.md](OPPORTUNITY-REVIEW.md) for source findings, the reproduced refresh defect, correction, local check results and installed acceptance steps. Source and local checks are complete for this first correction; installation, push and real workspace checks remain pending. OA-01 stays open.
+
+## Commercial acquisition release — 14 October 2026
+
+Worldwide and Nigeria public discovery, saved commercial leads, review/stages/history and daily commercial scheduling are connected in the prepared release. Use [COMMERCIAL-ACQUISITION-RELEASE-20261014.md](COMMERCIAL-ACQUISITION-RELEASE-20261014.md) for scope, limits, checks and completion evidence. This supersedes the audit’s earlier single-source-preview and missing-saved-lead findings after this release is installed. No milestone is closed from preparation alone. Commercial delivery handover, evidence approval/readiness and Career route migration remain separate open work.

@@ -1,0 +1,54 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+function load(file,stubs={}){const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const evaluated={exports:{}};new Function('require','module','exports',code)(name=>{if(!(name in stubs))throw Error('Unmocked '+name);return stubs[name];},evaluated,evaluated.exports);return evaluated.exports;}
+const text=load('features/opportunities/lib/source-text.ts');
+const intake=load('server/opportunities/client-discovery-intake.ts');
+const policy=load('server/opportunities/client-discovery-policy.ts',{'./client-discovery-intake':intake,'@/features/opportunities/lib/source-text':text});
+const matching=load('server/opportunities/commercial-matching.ts');
+const preferences={regions:[],industries:[],engagementTypes:[],preferredSources:[],businessProblems:[],minimumScore:0,requireBudget:false,includeUnpriced:true};
+const caps=[{id:'cap',name:'Online store development',purpose:'Shopify online store integration',businessProblems:['Shopify checkout integration'],possibleWork:['Online store development'],buyerPhrases:{requests:['Shopify checkout']},status:'DRAFT'}];
+const plans=policy.commercialQueries({...preferences,regions:['Ghana'],industries:['Retail']},caps,new Date('2026-10-14'));
+assert.equal(plans.length,8);for(const key of ['ng-web','global-web','communities'])assert.ok(plans.some(p=>p.key===key));assert.ok(plans.some(p=>p.kind==='RESEARCH'));assert.ok(plans.every(p=>p.query.length<=500));
+const request={title:'Need an online store',description:'I need an online store using Shopify checkout integration. Budget $1200.',url:'https://buyer.example/request?utm_source=x',research:false};
+const assessed=policy.assessWebLead(request,caps,preferences);assert.equal(assessed.kind,'REQUEST_SIGNAL');assert.equal(assessed.url,'https://buyer.example/request');assert.equal(assessed.budget,'$1200');assert.equal(assessed.matches[0].capabilityId,'cap');
+for(const sample of [{...request,url:'https://127.0.0.1'},{...request,title:'How to build an online store'},{...request,title:'We are hiring',description:'We are hiring a Shopify web developer. Salary and benefits.'}])assert.equal(policy.assessWebLead(sample,caps,preferences),null);
+assert.equal(policy.assessWebLead({...request,description:'Our new store launches today with online orders through Shopify.',title:'New online store launching',research:true},caps,preferences).kind,'RESEARCH_LEAD');
+assert.equal(policy.assessWebLead({...request,description:'I need an online store with Shopify checkout integration.'},caps,{...preferences,requireBudget:true}),null);assert.equal(policy.assessWebLead(request,caps,{...preferences,minimumScore:100}),null);
+console.log('PASS: Nigeria/global queries, small websites/stores, catalogue rotation, request/research separation, safe URLs, career/tutorial rejection and budget/score preferences.');
+let authorized=true,enabled=true,rows=[],logs=[],calls=0,seq=0,mutex=Promise.resolve();
+const matchesWhere=(row,where)=>Object.entries(where).every(([key,value])=>key==='OR'?value.some(w=>matchesWhere(row,w)):key==='evidenceLinks'?row.evidenceLinks?.includes(value.has):value instanceof Date?row[key].getTime()===value.getTime():row[key]===value);
+const db={
+ $executeRaw:async()=>{},companyOpportunityProfile:{findUnique:async()=>({id:'company',managerId:authorized?'owner':'other'})},clientAcquisitionSettings:{findUnique:async()=>({...preferences,discoveryEnabled:enabled}),upsert:async q=>q.create},companyCapability:{findMany:async()=>caps},commercialBusinessProblem:{findMany:async()=>[]},commercialSolutionGroup:{findMany:async()=>[]},
+ auditLog:{findFirst:async q=>[...logs].reverse().find(r=>matchesWhere(r,q.where))??null,findMany:async q=>logs.filter(r=>matchesWhere(r,q.where)).reverse().slice(0,q.take),create:async({data})=>{const r={...data,id:'log'+ ++seq,createdAt:new Date()};logs.push(r);return r;},update:async({where,data})=>{Object.assign(logs.find(r=>r.id===where.id),data);}},
+ clientProspect:{findFirst:async q=>rows.find(r=>matchesWhere(r,q.where))??null,count:async q=>rows.filter(r=>matchesWhere(r,q.where)).length,findMany:async q=>rows.filter(r=>matchesWhere(r,q.where)).slice(q.skip,q.skip+q.take),create:async({data})=>{const row={...data,id:'lead'+ ++seq,notes:'',updatedAt:new Date(),lastSeenAt:new Date(),matches:data.matches?.create??[]};rows.push(row);return row;},updateMany:async({where,data})=>{const r=rows.find(r=>matchesWhere(r,where));if(!r)return {count:0};Object.assign(r,data,{updatedAt:new Date(Date.now()+10)});return {count:1};}}
+};
+db.$transaction=fn=>{const p=mutex.then(async()=>{const a=structuredClone(rows),b=structuredClone(logs);try{return await fn(db);}catch(e){rows=a;logs=b;throw e;}});mutex=p.catch(()=>{});return p;};
+let failSearch=false;
+const collector=load('server/opportunities/client-collector.ts',{'server-only':{},'@/lib/prisma':{prisma:db},'./search':{searchWeb:async()=>{calls++;if(failSearch)throw Error('provider unavailable');return {web:{results:Array.from({length:8},(_,i)=>({...request,url:'https://buyer.example/'+(calls*8+i)}))}};}},'./client-discovery-policy':policy,'./commercial-matching':matching});
+const responses={apiError:(code,message,status)=>Response.json({code,message},{status}),apiSuccess:(data,status=200)=>Response.json({success:true,data},{status})};
+const api=load('server/opportunities/client-acquisition.ts',{'server-only':{},'@/lib/prisma':{prisma:db},'@/server/api/responses/api-response':responses,'./client-collector':collector,'./client-discovery-policy':policy,'./client-discovery-intake':intake});
+process.env.OPPORTUNITY_SEARCH_API_KEY='fake-test-key';authorized=false;assert.equal((await api.clientAcquisition('client:detail',{id:'lead1'},'owner')).status,403);assert.equal((await collector.runCommercialCollection('owner')).status,'unavailable');assert.equal(calls,0);authorized=true;
+enabled=false;assert.equal((await collector.runCommercialCollection('owner',true)).status,'disabled');assert.equal(calls,0);enabled=true;
+delete process.env.OPPORTUNITY_SEARCH_API_KEY;assert.equal((await collector.runCommercialCollection('owner')).status,'not_configured');assert.equal(logs.length,0);process.env.OPPORTUNITY_SEARCH_API_KEY='fake-test-key';
+const pair=await Promise.all([collector.runCommercialCollection('owner'),collector.runCommercialCollection('owner')]);assert.equal(pair.filter(r=>r.status==='cooldown').length,1);assert.equal(calls,8);assert.equal(rows.length,25);assert.equal(pair.find(r=>r.status==='success').added,25);assert.equal(logs[0].metadata.sources.filter(s=>s.new>0).length,8);
+console.log('PASS: owner isolation, disabled schedule, missing provider configuration, concurrent lease, eight-territory admission and 25-new-save limit.');
+const lead=rows[0];lead.notes='Saved assessment';lead.state='REVIEW';const version=lead.updatedAt.toISOString();
+assert.equal((await api.clientAcquisition('client:decision',{id:lead.id,state:'QUALIFIED',notes:'Source still unclear',updatedAt:version,confirmedChecks:[]},'owner')).status,400);
+assert.equal((await api.clientAcquisition('client:decision',{id:lead.id,state:'REVIEW',notes:'Reviewed the source; waiting for a budget.',updatedAt:version,confirmedChecks:['source']},'owner')).status,200);assert.equal(logs.filter(l=>l.action==='CLIENT_PROSPECT_REVIEW').length,1);
+const newVersion=lead.updatedAt.toISOString();assert.equal((await api.clientAcquisition('client:decision',{id:lead.id,state:'REVIEW',notes:lead.notes,updatedAt:version,confirmedChecks:['source']},'owner')).status,409);
+assert.equal((await api.clientAcquisition('client:decision',{id:lead.id,state:'REVIEW',notes:lead.notes,updatedAt:newVersion,confirmedChecks:['source']},'owner')).status,200);assert.equal(logs.filter(l=>l.action==='CLIENT_PROSPECT_REVIEW').length,1);
+const oldNotes=lead.notes;rows.push({...lead,id:'other',ownerId:'another'});assert.equal((await api.clientAcquisition('client:detail',{id:'other'},'owner')).status,404);
+const detail=await(await api.clientAcquisition('client:detail',{id:lead.id},'owner')).json();assert.equal(detail.data.history.length,1);assert.equal(detail.data.prospect.notes,oldNotes);
+const list=await(await api.clientAcquisition('client:list',{page:999},'owner')).json();assert.equal(list.data.page,1);assert.equal(list.data.total,25);assert.ok(!list.data.prospects.some(p=>p.ownerId==='another'));
+console.log('PASS: list/detail isolation, pagination clamp, qualification gate, optimistic conflict, unchanged-save idempotence and persisted review history.');
+logs.find(l=>l.action==='CLIENT_DISCOVERY_RUN').createdAt=new Date(Date.now()-21*3600000);calls=0;
+const repeat=await collector.runCommercialCollection('owner');assert.equal(repeat.added,25);assert.equal(repeat.existing,25);assert.equal(new Set(rows.filter(r=>r.ownerId==='owner').map(r=>r.canonicalKey)).size,50);assert.equal(rows[0].notes,oldNotes);assert.equal(rows[0].state,'REVIEW');
+logs.filter(l=>l.action==='CLIENT_DISCOVERY_RUN').forEach(l=>l.createdAt=new Date(Date.now()-21*3600000));failSearch=true;const before=structuredClone(rows);const failed=await collector.runCommercialCollection('owner');assert.equal(failed.status,'failed');assert.deepEqual(rows,before);assert.equal((await collector.runCommercialCollection('owner')).status,'cooldown');
+console.log('PASS: repeat discovery preserves decisions/notes; all-failed searches preserve records with bounded backoff. No live database or network used.');
+let personalCalls=0,commercialCalls=0;
+process.env.CRON_SECRET='test-cron-secret';process.env.OPPORTUNITY_OWNER_ID='owner';
+const cron=load('app/api/cron/opportunities/route.ts',{'node:crypto':await import('node:crypto'),'@/lib/prisma':{prisma:{user:{findUnique:async()=>({role:'ADMIN',status:'ACTIVE'})},applicationRequestNonce:{deleteMany:async()=>{}}}},'@/server/opportunities/collector':{runCollection:async id=>{assert.equal(id,'owner');personalCalls++;return {status:'disabled'};}},'@/server/opportunities/client-collector':{runCommercialCollection:async(id,scheduled)=>{assert.equal(id,'owner');assert.equal(scheduled,true);commercialCalls++;return {status:'success',added:1};}}});
+assert.equal((await cron.GET(new Request('https://api.example/api/cron/opportunities'))).status,401);assert.equal(commercialCalls,0);
+const scheduled=await cron.GET(new Request('https://api.example/api/cron/opportunities',{headers:{authorization:'Bearer test-cron-secret'}}));assert.equal(scheduled.status,200);assert.equal((await scheduled.json()).commercial.added,1);assert.equal(personalCalls,1);assert.equal(commercialCalls,1);
+console.log('PASS: scheduled route authenticates before either collector; commercial discovery is invoked even when the personal hunt is disabled.');

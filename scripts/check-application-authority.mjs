@@ -197,7 +197,20 @@ const review = load("server/opportunities/career-review.ts", {
   "@/features/opportunities/lib/project-evidence": load("features/opportunities/lib/project-evidence.ts"),
   "./policy": load("server/opportunities/policy.ts"),
 });
+const commercialDispatch = [];
+const delegated = async (operation, payload, ownerId) => {
+  commercialDispatch.push({operation,ownerId});
+  assert.equal(ownerId,"central-owner");
+  assert.notEqual(ownerId,payload.ownerId);
+  return responses.apiSuccess({delegated:true});
+};
 const route = load("app/api/v1/internal/systems/opportunities/route.ts", {
+  "@/server/opportunities/client-live-discovery": {clientDiscoveryReview:delegated},
+  "@/server/opportunities/client-manual-notice": {clientManualNotice:delegated},
+  "@/server/opportunities/client-discovery-sources": {clientSourceRegistry:delegated},
+  "@/server/opportunities/commercial-knowledge": {commercialKnowledge:delegated},
+  "@/server/opportunities/company-capabilities": {companyCapabilities:delegated},
+  "@/server/opportunities/client-acquisition": {clientAcquisition:delegated},
   "@/features/opportunities/lib/source-text": load("features/opportunities/lib/source-text.ts"),
   "@/server/opportunities/career-review": review,
   "@/server/opportunities/refresh-priorities": {refreshPriorities: async owner=>{assert.equal(owner,"central-owner");return {checked:1,changed:0};}},
@@ -424,3 +437,27 @@ identity.scopes = ["opportunities:read"];
 assert.equal((await route.POST(request({operation:"contacts",ownerId:"other"}))).status,200);
 assert.equal((await route.POST(request({operation:"refresh",ownerId:"other"}))).status,403);
 console.log("PASS: contacts require read scope, priority refresh requires write scope, supplied owners ignored.");
+
+const commercialScopes = {
+  "client:detail":"client-acquisition:read", "client:decision":"client-acquisition:write", "client:collect":"client-acquisition:write",
+  "client:list":"client-acquisition:read", "client:settings":"client-acquisition:write",
+  "client:prospect":"client-acquisition:write", "client:discovery-review":"client-acquisition:read",
+  "client:source-list":"client-acquisition:read", "client:source-save":"client-acquisition:write",
+  "client:source-decision":"client-acquisition:write", "client:notice-preview":"client-acquisition:read",
+  "client:notice-save":"client-acquisition:write", "company:list":"company-capabilities:read",
+  "company:profile":"company-capabilities:write", "company:capability":"company-capabilities:write",
+  "company:solution":"company-capabilities:write", "knowledge:list":"company-capabilities:read",
+  "knowledge:match":"company-capabilities:read", "knowledge:problem":"company-capabilities:write",
+  "knowledge:group":"company-capabilities:write", "knowledge:link":"company-capabilities:write",
+  "knowledge:assign-group":"company-capabilities:write",
+};
+for (const [operation,scope] of Object.entries(commercialScopes)) {
+  const before = commercialDispatch.length;
+  identity.scopes = ["opportunities:read","opportunities:write"];
+  assert.equal((await route.POST(request({operation,ownerId:"forged"}))).status,403,operation);
+  assert.equal(commercialDispatch.length,before);
+  identity.scopes = [scope];
+  assert.equal((await route.POST(request({operation,ownerId:"forged"}))).status,200,operation);
+  assert.equal(commercialDispatch.length,before+1);
+}
+console.log("PASS: all 22 commercial operations enforce their dedicated scope and dispatch only the verified owner; personal scopes cannot authorise commercial work.");

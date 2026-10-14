@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { runCommercialCollection } from "@/server/opportunities/client-collector";
 import { runCollection } from "@/server/opportunities/collector";
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -35,9 +36,10 @@ export async function GET(request: Request) {
   await prisma.applicationRequestNonce.deleteMany({
     where: { expiresAt: { lt: new Date(Date.now() - 86400000) } },
   });
-  const result = await runCollection(ownerId);
-  return Response.json(result, {
-    status: result.status === "failed" ? 503 : 200,
+  // Commercial and personal records, preferences and waiting periods remain independent.
+  const [result, commercial] = await Promise.all([runCollection(ownerId), runCommercialCollection(ownerId, true)]);
+  return Response.json({ ...result, commercial }, {
+    status: result.status === "failed" || commercial.status === "failed" ? 503 : 200,
     headers: { "Cache-Control": "no-store" },
   });
 }
