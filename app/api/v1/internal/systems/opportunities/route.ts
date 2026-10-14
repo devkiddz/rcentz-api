@@ -1,3 +1,9 @@
+import { clientDiscoveryReview } from "@/server/opportunities/client-live-discovery";
+import { clientManualNotice } from "@/server/opportunities/client-manual-notice";
+import { clientSourceRegistry } from "@/server/opportunities/client-discovery-sources";
+import { commercialKnowledge } from "@/server/opportunities/commercial-knowledge";
+import { companyCapabilities } from "@/server/opportunities/company-capabilities";
+import { clientAcquisition } from "@/server/opportunities/client-acquisition";
 import { plain } from "@/features/opportunities/lib/source-text";
 import { refreshPriorities } from "@/server/opportunities/refresh-priorities";
 import { readContacts } from "@/server/opportunities/contacts";
@@ -26,6 +32,25 @@ const operationScopes: Record<string, string> = {
   profile: "opportunities:write",
   decision: "opportunities:write",
   collect: "opportunities:collect",
+  "client:list": "client-acquisition:read",
+  "client:settings": "client-acquisition:write",
+  "client:prospect": "client-acquisition:write",
+  "company:list": "company-capabilities:read",
+  "company:profile": "company-capabilities:write",
+  "company:capability": "company-capabilities:write",
+  "company:solution": "company-capabilities:write",
+  "knowledge:list": "company-capabilities:read",
+  "knowledge:match": "company-capabilities:read",
+  "client:discovery-review": "client-acquisition:read",
+  "client:source-list": "client-acquisition:read",
+  "client:notice-preview": "client-acquisition:read",
+  "client:notice-save": "client-acquisition:write",
+  "client:source-save": "client-acquisition:write",
+  "client:source-decision": "client-acquisition:write",
+  "knowledge:problem": "company-capabilities:write",
+  "knowledge:group": "company-capabilities:write",
+  "knowledge:link": "company-capabilities:write",
+  "knowledge:assign-group": "company-capabilities:write",
 };
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -70,6 +95,13 @@ async function handle(request: Request) {
     );
     if (!actor.ok) return actor.response;
     const ownerId = actor.userId;
+    if (payload.operation === "client:discovery-review") return clientDiscoveryReview(payload.operation, payload, ownerId);
+    if (payload.operation.startsWith("client:notice-")) return clientManualNotice(payload.operation, payload, ownerId);
+    if (payload.operation.startsWith("client:source-")) return clientSourceRegistry(payload.operation, payload, ownerId);
+    if (payload.operation.startsWith("client:")) return clientAcquisition(payload.operation, payload, ownerId);
+    if (payload.operation.startsWith("company:")) return companyCapabilities(payload.operation, payload, ownerId);
+    if (payload.operation.startsWith("knowledge:")) return commercialKnowledge(payload.operation, payload, ownerId);
+
     if (payload.operation === "refresh") return apiSuccess(await refreshPriorities(ownerId));
     if (payload.operation === "contacts") return apiSuccess(await readContacts(ownerId, payload.page));
     if (payload.operation === "retention") {

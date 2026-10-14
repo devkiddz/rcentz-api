@@ -444,6 +444,7 @@ enum RcentzProductGalleryType {
 }
 
 model RcentzProduct {
+  capabilityEvidence CapabilityEvidence[]
   id String @id @default(cuid())
 
   // -------------------------------------------------------
@@ -917,6 +918,10 @@ enum SeoRobots {
 // =========================================================
 
 model User {
+  clientAcquisitionSettings ClientAcquisitionSettings[] @relation("ClientAcquisitionSettingsOwner")
+  clientProspects ClientProspect[] @relation("ClientProspectOwner")
+  managedCompanyProfiles CompanyOpportunityProfile[] @relation("CompanyOpportunityManager")
+  reviewedCapabilityEvidence CapabilityEvidence[] @relation("CapabilityEvidenceReviewer")
   applicationIdentities ApplicationIdentity[]
   opportunityProfiles   OpportunityProfile[]
 
@@ -1134,6 +1139,7 @@ model ServiceCategory {
 }
 
 model Service {
+  companyCapabilities CompanyCapability[]
   id               String        @id @default(cuid())
   categoryId       String?
   createdById      String
@@ -1747,6 +1753,7 @@ model SubscriptionUsageRecord {
 // =========================================================
 
 model Project {
+  capabilityEvidence CapabilityEvidence[]
   id               String  @id @default(cuid())
   clientId         String?
   serviceRequestId String? @unique
@@ -3896,4 +3903,253 @@ model OpportunitySourceRun {
   finishedAt DateTime?
 
   @@index([profileId, startedAt])
+}
+
+// OA-02 — Private company capability intelligence. Not a public service catalogue.
+enum CompanyCapabilityStatus {
+  DRAFT
+  READY
+  PAUSED
+  ARCHIVED
+}
+
+enum CapabilityEvidenceState {
+  PROPOSED
+  INSPECTED
+  LOCALLY_TESTED
+  LIVE_TESTED
+  CLIENT_DELIVERED
+}
+
+model CompanyOpportunityProfile {
+  commercialProblems CommercialBusinessProblem[]
+  commercialSolutionGroups CommercialSolutionGroup[]
+  clientAcquisitionSettings ClientAcquisitionSettings?
+  clientProspects ClientProspect[]
+  id                String   @id @default(cuid())
+  key               String   @unique
+  name              String
+  operatingCountry  String
+  deliveryMode      String
+  availabilityNote  String   @default("Needs confirmation")
+  earliestStartAt   DateTime?
+  weeklyHours       Int?
+  concurrentCapacity Int?
+  managerId         String
+  manager           User     @relation("CompanyOpportunityManager", fields: [managerId], references: [id], onDelete: Restrict)
+  reviewedAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  capabilities      CompanyCapability[]
+  discoverySources ClientDiscoverySource[]
+}
+
+model CompanyCapability {
+  prospectMatches ClientProspectCapabilityMatch[]
+  id             String  @id @default(cuid())
+  profileId      String
+  serviceId      String
+  key            String
+  name           String
+  purpose        String
+  status         CompanyCapabilityStatus @default(DRAFT)
+  businessProblems String[] @default([])
+  buyerPhrases   Json    @default("{}")
+  possibleWork   String[] @default([])
+  agreementTypes String[] @default([])
+  deliveryLimits String[] @default([])
+  reviewedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  profile        CompanyOpportunityProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  service        Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  solutions      CapabilitySolution[]
+  evidence       CapabilityEvidence[]
+  @@unique([profileId, key])
+  @@index([serviceId])
+  @@index([status])
+}
+
+model CapabilitySolution {
+  groupId String?
+  group CommercialSolutionGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  problemLinks CommercialProblemSolution[]
+
+  id              String @id @default(cuid())
+  capabilityId    String
+  key             String
+  name            String
+  problem         String
+  intendedUsers   String[] @default([])
+  proposedWorkflow String
+  deliverables    String[] @default([])
+  buyerPhrases    String[] @default([])
+  discoveryQuestions String[] @default([])
+  exclusions      String[] @default([])
+  status          CompanyCapabilityStatus @default(DRAFT)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  capability      CompanyCapability @relation(fields: [capabilityId], references: [id], onDelete: Restrict)
+  evidence        CapabilityEvidence[]
+  @@unique([capabilityId, key])
+  @@index([groupId])
+}
+
+model CapabilityEvidence {
+  id            String @id @default(cuid())
+  capabilityId  String
+  solutionId    String?
+  projectId     String?
+  productId     String?
+  contribution  String
+  supportedClaim String
+  state         CapabilityEvidenceState @default(PROPOSED)
+  verifiedAt    DateTime?
+  reviewedById  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  capability    CompanyCapability @relation(fields: [capabilityId], references: [id], onDelete: Restrict)
+  solution      CapabilitySolution? @relation(fields: [solutionId], references: [id], onDelete: Restrict)
+  project       Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  product       RcentzProduct? @relation(fields: [productId], references: [id], onDelete: Restrict)
+  reviewer      User? @relation("CapabilityEvidenceReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  @@index([projectId])
+  @@index([productId])
+  @@index([capabilityId, state])
+}
+
+// Client Acquisition P2 — isolated from personal OpportunityProfile/Opportunity.
+model ClientAcquisitionSettings {
+  id                 String   @id @default(cuid())
+  companyProfileId   String   @unique
+  ownerId            String
+  regions            String[] @default([])
+  industries         String[] @default([])
+  engagementTypes    String[] @default([])
+  preferredSources   String[] @default([])
+  businessProblems   String[] @default([])
+  includeUnpriced    Boolean  @default(true)
+  requireBudget      Boolean  @default(false)
+  discoveryEnabled   Boolean  @default(false)
+  minimumScore       Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  companyProfile     CompanyOpportunityProfile @relation(fields: [companyProfileId], references: [id], onDelete: Restrict)
+  owner              User     @relation("ClientAcquisitionSettingsOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  @@index([ownerId])
+}
+
+model ClientProspect {
+  id               String   @id @default(cuid())
+  companyProfileId String
+  ownerId          String
+  source           String
+  externalId       String
+  canonicalKey     String?
+  businessName     String
+  summary          String
+  website          String?
+  country          String?
+  industry         String?
+  problemSignals   String[] @default([])
+  engagementTypes  String[] @default([])
+  budgetSignal     String?
+  evidenceLinks    String[] @default([])
+  fitScore         Int?
+  qualification    Json     @default("{}")
+  state            String   @default("NEW")
+  notes            String   @default("")
+  firstSeenAt      DateTime @default(now())
+  lastSeenAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  companyProfile   CompanyOpportunityProfile @relation(fields: [companyProfileId], references: [id], onDelete: Restrict)
+  owner            User     @relation("ClientProspectOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  matches          ClientProspectCapabilityMatch[]
+  @@unique([companyProfileId, source, externalId])
+  @@unique([companyProfileId, canonicalKey])
+  @@index([companyProfileId, state, createdAt])
+  @@index([ownerId, state])
+}
+
+model ClientProspectCapabilityMatch {
+  id           String   @id @default(cuid())
+  prospectId   String
+  capabilityId String
+  rationale    String
+  score        Int?
+  createdAt    DateTime @default(now())
+  prospect     ClientProspect @relation(fields: [prospectId], references: [id], onDelete: Cascade)
+  capability   CompanyCapability @relation(fields: [capabilityId], references: [id], onDelete: Restrict)
+  @@unique([prospectId, capabilityId])
+  @@index([capabilityId])
+}
+
+
+// P5: reusable commercial problem/solution catalogue.
+model CommercialBusinessProblem {
+  id           String @id @default(cuid())
+  profileId    String
+  key          String
+  title        String
+  description  String
+  symptoms     String[] @default([])
+  impact       String[] @default([])
+  status       CompanyCapabilityStatus @default(DRAFT)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  profile      CompanyOpportunityProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  solutions    CommercialProblemSolution[]
+  @@unique([profileId, key])
+  @@index([profileId, status])
+}
+
+model CommercialSolutionGroup {
+  id          String @id @default(cuid())
+  profileId   String
+  key         String
+  name        String
+  description String @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  profile     CompanyOpportunityProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  solutions   CapabilitySolution[]
+  @@unique([profileId, key])
+}
+
+model CommercialProblemSolution {
+  id                    String @id @default(cuid())
+  problemId             String
+  solutionId            String
+  rationale             String
+  qualificationCriteria String[] @default([])
+  priority              Int @default(0)
+  createdAt             DateTime @default(now())
+  problem               CommercialBusinessProblem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  solution              CapabilitySolution @relation(fields: [solutionId], references: [id], onDelete: Restrict)
+  @@unique([problemId, solutionId])
+  @@index([solutionId])
+}
+
+// P6 owner-scoped discovery source registry. Approval never initiates fetching.
+model ClientDiscoverySource {
+  id                String @id @default(cuid())
+  profileId         String
+  key               String
+  name              String
+  homepage          String
+  kind              String
+  lane              String
+  method            String
+  approval          String @default("DRAFT")
+  enabled           Boolean @default(false)
+  permittedEndpoint String?
+  cadenceMinutes    Int @default(1440)
+  maxItemsPerRun    Int @default(20)
+  notes             String @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  profile           CompanyOpportunityProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  @@unique([profileId, key])
+  @@index([profileId, approval, enabled])
 }
