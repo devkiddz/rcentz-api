@@ -48,8 +48,9 @@ const db={
  clientProspect:{findFirst:async q=>rows.find(r=>matchesWhere(r,q.where))??null,count:async q=>rows.filter(r=>matchesWhere(r,q.where)).length,findMany:async q=>rows.filter(r=>matchesWhere(r,q.where)).slice(q.skip,q.skip+q.take),create:async({data})=>{const row={...data,id:'lead'+ ++seq,notes:'',updatedAt:new Date(),lastSeenAt:new Date(),matches:data.matches?.create??[]};rows.push(row);return row;},updateMany:async({where,data})=>{const r=rows.find(r=>matchesWhere(r,where));if(!r)return {count:0};Object.assign(r,data,{updatedAt:new Date(Date.now()+10)});return {count:1};}}
 };
 db.$transaction=fn=>{const p=mutex.then(async()=>{const a=structuredClone(rows),b=structuredClone(logs);try{return await fn(db);}catch(e){rows=a;logs=b;throw e;}});mutex=p.catch(()=>{});return p;};
-let failSearch=false, contaminate=false;
-const collector=load('server/opportunities/client-collector.ts',{'server-only':{},'@/lib/prisma':{prisma:db},'./search':{searchWeb:async()=>{calls++;if(failSearch)throw Error('provider unavailable');return {web:{results:Array.from({length:8},(_,i)=>({...request,...(contaminate?{title:'Workflow software',description:'Software for managing a portal and orders.',extra_snippets:[request.description]}:{}),url:'https://buyer.example/'+(calls*8+i)}))}};}},'./client-discovery-policy':policy,'./commercial-matching':matching});
+let failSearch=false, contaminate=false, deepPages=false;
+const depth=load('server/opportunities/commercial-search-depth.ts',{'./search':{searchWeb:async(query,count,freshness,offset=0)=>{calls++;if(failSearch)throw Error('provider unavailable');return {query:{more_results_available:deepPages&&offset<2},web:{results:Array.from({length:deepPages?10:8},(_,i)=>({...request,...(contaminate?{title:'Workflow software',description:'Software for managing a portal and orders.',extra_snippets:[request.description]}:{}),url:deepPages?'https://buyer.example/deep/'+encodeURIComponent(query)+'/'+(i===0?'repeated':offset*10+i):'https://buyer.example/'+(calls*8+i)}))}};}}});
+const collector=load('server/opportunities/client-collector.ts',{'server-only':{},'@/lib/prisma':{prisma:db},'./commercial-search-depth':depth,'./client-discovery-policy':policy,'./commercial-matching':matching});
 const responses={apiError:(code,message,status)=>Response.json({code,message},{status}),apiSuccess:(data,status=200)=>Response.json({success:true,data},{status})};
 const api=load('server/opportunities/client-acquisition.ts',{'server-only':{},'@/lib/prisma':{prisma:db},'@/server/api/responses/api-response':responses,'./client-collector':collector,'./client-discovery-policy':policy,'./client-discovery-intake':intake});
 process.env.OPPORTUNITY_SEARCH_API_KEY='fake-test-key';authorized=false;assert.equal((await api.clientAcquisition('client:detail',{id:'lead1'},'owner')).status,403);assert.equal((await collector.runCommercialCollection('owner')).status,'unavailable');assert.equal(calls,0);authorized=true;
@@ -83,6 +84,14 @@ assert.equal(rows.find(r=>r.ownerId==='owner').qualification.admissionPolicyVers
 assert.equal(rows.find(r=>r.ownerId==='owner').qualification.intentEvidenceOrigin,'PRIMARY_SEARCH_DESCRIPTION');
 console.log('PASS: buyer wording present only in mixed extra snippets cannot create a lead; run and lead admission provenance recorded.');
 console.log('PASS: repeat discovery preserves decisions/notes; all-failed searches preserve records with bounded backoff. No live database or network used.');
+// Exercise the real three-page collector, including repeated URLs across pages.
+rows=[];logs=[];calls=0;contaminate=false;deepPages=true;
+const deepRun=await collector.runCommercialCollection('owner');
+assert.equal(deepRun.status,'success');assert.equal(calls,24);assert.equal(rows.length,25);
+assert.equal(new Set(rows.map(row=>row.canonicalKey)).size,25);
+assert.equal(deepRun.sources.filter(source=>source.new>0).length,8);
+assert.ok(deepRun.sources.every(source=>source.fetched===30&&source.pagesFetched===3));
+console.log('PASS: real paginated collector deduplicates repeated page URLs, represents all eight search areas and preserves the 25-new limit.');
 let personalCalls=0,commercialCalls=0;
 process.env.CRON_SECRET='test-cron-secret';process.env.OPPORTUNITY_OWNER_ID='owner';
 const cron=load('app/api/cron/opportunities/route.ts',{'node:crypto':await import('node:crypto'),'@/lib/prisma':{prisma:{user:{findUnique:async()=>({role:'ADMIN',status:'ACTIVE'})},applicationRequestNonce:{deleteMany:async()=>{}}}},'@/server/opportunities/collector':{runCollection:async id=>{assert.equal(id,'owner');personalCalls++;return {status:'disabled'};}},'@/server/opportunities/client-collector':{runCommercialCollection:async(id,scheduled)=>{assert.equal(id,'owner');assert.equal(scheduled,true);commercialCalls++;return {status:'success',added:1};}}});

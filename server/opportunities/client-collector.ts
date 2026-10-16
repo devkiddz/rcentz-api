@@ -1,6 +1,6 @@
 import 'server-only';
 import { prisma } from '@/lib/prisma';
-import { searchWeb } from './search';
+import { collectSearchPages, commercialSearchLimits, type SearchStats } from './commercial-search-depth';
 import { commercialQueries, assessWebLead, type Preferences } from './client-discovery-policy';
 import { matchCommercialProblems } from './commercial-matching';
 import type { Prisma } from '@/generated/prisma/client';
@@ -28,7 +28,8 @@ export async function runCommercialCollection(ownerId:string,scheduled=false){
   return {status:'leased' as const,id:run.id};
  },{maxWait:5000,timeout:10000});
  if(lease.status!=='leased')return {status:'cooldown',added:0,nextEligibleAt:lease.nextEligibleAt,message:'The last run is still within the shared waiting period. Existing results remain available.'};
- const sources:{key:string;label:string;query:string;status:string;fetched:number;new:number;existing:number;skipped:number}[]=[];let added=0,existing=0;
+ const sources:SearchStats[]=[];let added=0,existing=0;
+ const started=Date.now();let interrupted=false;
  try{
   const [capabilities,problems,groups]=await Promise.all([
    prisma.companyCapability.findMany({where:{profileId:profile.id,status:{notIn:['ARCHIVED','PAUSED']}},take:100,orderBy:{id:'asc'},select:{id:true,name:true,purpose:true,businessProblems:true,possibleWork:true,status:true,buyerPhrases:true}}),
@@ -36,15 +37,12 @@ export async function runCommercialCollection(ownerId:string,scheduled=false){
    prisma.commercialSolutionGroup.findMany({where:{profileId:profile.id},take:100,select:{id:true,name:true}})
   ]);
   const preferences=settings??commercialDefaults;const plans=commercialQueries(preferences,capabilities);
-  const batches:{plan:typeof plans[number];items:unknown[]}[]=[];
-  for(const plan of plans){
-   const stats={key:plan.key,label:plan.label,query:plan.query,status:'SUCCESS',fetched:0,new:0,existing:0,skipped:0};sources.push(stats);
-   try{const response=await searchWeb(plan.query,8,plan.kind==='REQUEST'?'pm':'py');if(!record(response)||!record(response.web)||!Array.isArray(response.web.results))throw Error('SOURCE_FORMAT');const items=response.web.results.slice(0,8);stats.fetched=items.length;batches.push({plan,items});}
-   catch{stats.status='FAILED';}
-  }
+  const batches=await collectSearchPages(plans,started+commercialSearchLimits.fetchBudgetMs);
+  sources.push(...batches.map(batch=>batch.stats));
   const seen=new Set<string>();
   // Round-robin: one broad source must not consume the entire daily new-lead budget.
-  for(let index=0;index<8;index++)for(const batch of batches){
+  processing: for(let index=0;index<commercialSearchLimits.pages*commercialSearchLimits.pageSize;index++)for(const batch of batches){
+   if(Date.now()>=started+commercialSearchLimits.runBudgetMs){interrupted=true;break processing;}
    const stats=sources.find(s=>s.key===batch.plan.key)!;const item=batch.items[index];if(!record(item))continue;
    const candidate=assessWebLead({title:typeof item.title==='string'?item.title:'',description:typeof item.description==='string'?item.description.slice(0,4000):'',url:typeof item.url==='string'?item.url:'',research:batch.plan.kind==='RESEARCH'},capabilities,preferences);
    if(!candidate||seen.has(candidate.url)){stats.skipped++;continue;}seen.add(candidate.url);
@@ -60,12 +58,12 @@ export async function runCommercialCollection(ownerId:string,scheduled=false){
    },{maxWait:5000,timeout:10000});
    if(outcome==='new'){added++;stats.new++;}else if(outcome==='existing'){existing++;stats.existing++;}else stats.skipped++;
   }
-  const successes=sources.filter(s=>s.status==='SUCCESS').length;const status=successes===0?'FAILED':successes===sources.length?'SUCCESS':'PARTIAL';
-  const message=successes===0?'All web searches failed. Earlier leads and decisions remain unchanged.':`${added} new leads saved; ${existing} earlier leads seen again. Review source evidence before pursuit.`;
-  await prisma.auditLog.update({where:{id:lease.id},data:{metadata:json({status,scheduled,admissionPolicyVersion:3,added,existing,sources,finishedAt:new Date().toISOString(),message})}});
+  const successes=sources.filter(s=>s.pagesFetched>0).length;const status=successes===0?'FAILED':!interrupted&&sources.every(s=>s.status==='SUCCESS')?'SUCCESS':'PARTIAL';
+  const message=successes===0?'All web searches failed. Earlier leads and decisions remain unchanged.':`${added} new leads saved; ${existing} earlier leads seen again. ${status==='PARTIAL'?' Some searches were incomplete.':''} Review source evidence before pursuit.`;
+  await prisma.auditLog.update({where:{id:lease.id},data:{metadata:json({status,scheduled,admissionPolicyVersion:3,added,existing,searchDepth:{pages:3,pageSize:10,maxRequests:24},sources,finishedAt:new Date().toISOString(),message})}});
   return {status:status.toLowerCase(),added,existing,sources,message};
  }catch{
-  await prisma.auditLog.update({where:{id:lease.id},data:{metadata:json({status:'FAILED',scheduled,admissionPolicyVersion:3,added,existing,sources,finishedAt:new Date().toISOString(),message:'Collection stopped. Earlier records and decisions are preserved.'})}});
+  await prisma.auditLog.update({where:{id:lease.id},data:{metadata:json({status:'FAILED',scheduled,admissionPolicyVersion:3,added,existing,searchDepth:{pages:3,pageSize:10,maxRequests:24},sources,finishedAt:new Date().toISOString(),message:'Collection stopped. Earlier records and decisions are preserved.'})}});
   return {status:'failed',added,message:'Collection stopped. Earlier records and decisions are preserved.'};
  }
 }
