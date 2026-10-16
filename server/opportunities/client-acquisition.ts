@@ -62,7 +62,7 @@ export async function clientAcquisition(operation: string, input: Data, ownerId:
     const requestedPage = Number(requested);
     const state = input.state;
     if (state !== undefined && (typeof state !== "string" || !(prospectStates as readonly string[]).includes(state))) return apiError("INVALID_STATE", "Invalid state", 400);
-    const where = { companyProfileId: profile.id, ownerId, ...(state ? { state } : {}) };
+    const where = { companyProfileId: profile.id, ownerId, ...(state ? { state } : { state: { not: 'ARCHIVED' } }) };
     const [settings, discovery] = await Promise.all([
       prisma.clientAcquisitionSettings.findUnique({ where: { companyProfileId: profile.id } }),
       commercialRunOverview(profile.id, ownerId),

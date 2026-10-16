@@ -41,7 +41,7 @@ console.log('PASS: all five exact live excerpts; generic client nouns cannot imp
 console.log('PASS: DesignRush seller directory rejected; rankings, seller pitches and generic advice rejected; explicit buyer and procurement evidence retained; budget suffixes and currency ranges preserved.');
 console.log('PASS: Nigeria/global queries, small websites/stores, catalogue rotation, request/research separation, safe URLs, career/tutorial rejection and budget/score preferences.');
 let authorized=true,enabled=true,rows=[],logs=[],calls=0,seq=0,mutex=Promise.resolve();
-const matchesWhere=(row,where)=>Object.entries(where).every(([key,value])=>key==='OR'?value.some(w=>matchesWhere(row,w)):key==='evidenceLinks'?row.evidenceLinks?.includes(value.has):value instanceof Date?row[key].getTime()===value.getTime():row[key]===value);
+const matchesWhere=(row,where)=>Object.entries(where).every(([key,value])=>key==='OR'?value.some(w=>matchesWhere(row,w)):key==='evidenceLinks'?row.evidenceLinks?.includes(value.has):value instanceof Date?row[key].getTime()===value.getTime():value&&typeof value==='object'&&'not' in value?row[key]!==value.not:row[key]===value);
 const db={
  $executeRaw:async()=>{},companyOpportunityProfile:{findUnique:async()=>({id:'company',managerId:authorized?'owner':'other'})},clientAcquisitionSettings:{findUnique:async()=>({...preferences,discoveryEnabled:enabled}),upsert:async q=>q.create},companyCapability:{findMany:async()=>caps},commercialBusinessProblem:{findMany:async()=>[]},commercialSolutionGroup:{findMany:async()=>[]},
  auditLog:{findFirst:async q=>[...logs].reverse().find(r=>matchesWhere(r,q.where))??null,findMany:async q=>logs.filter(r=>matchesWhere(r,q.where)).reverse().slice(0,q.take),create:async({data})=>{const r={...data,id:'log'+ ++seq,createdAt:new Date()};logs.push(r);return r;},update:async({where,data})=>{Object.assign(logs.find(r=>r.id===where.id),data);}},
@@ -65,6 +65,10 @@ assert.equal((await api.clientAcquisition('client:decision',{id:lead.id,state:'R
 const oldNotes=lead.notes;rows.push({...lead,id:'other',ownerId:'another'});assert.equal((await api.clientAcquisition('client:detail',{id:'other'},'owner')).status,404);
 const detail=await(await api.clientAcquisition('client:detail',{id:lead.id},'owner')).json();assert.equal(detail.data.history.length,1);assert.equal(detail.data.prospect.notes,oldNotes);
 const list=await(await api.clientAcquisition('client:list',{page:999},'owner')).json();assert.equal(list.data.page,1);assert.equal(list.data.total,25);assert.ok(!list.data.prospects.some(p=>p.ownerId==='another'));
+lead.state='ARCHIVED';
+const activeOnly=await(await api.clientAcquisition('client:list',{page:1},'owner')).json();assert.equal(activeOnly.data.total,24);assert.ok(!activeOnly.data.prospects.some(p=>p.id===lead.id));
+const archivedOnly=await(await api.clientAcquisition('client:list',{page:1,state:'ARCHIVED'},'owner')).json();assert.equal(archivedOnly.data.total,1);assert.equal(archivedOnly.data.prospects[0].id,lead.id);lead.state='REVIEW';
+console.log('PASS: default active queue excludes archived records; explicit Archived filter and record history remain available.');
 console.log('PASS: list/detail isolation, pagination clamp, qualification gate, optimistic conflict, unchanged-save idempotence and persisted review history.');
 logs.find(l=>l.action==='CLIENT_DISCOVERY_RUN').createdAt=new Date(Date.now()-21*3600000);calls=0;
 const repeat=await collector.runCommercialCollection('owner');assert.equal(repeat.added,25);assert.equal(repeat.existing,25);assert.equal(new Set(rows.filter(r=>r.ownerId==='owner').map(r=>r.canonicalKey)).size,50);assert.equal(rows[0].notes,oldNotes);assert.equal(rows[0].state,'REVIEW');
