@@ -13,7 +13,7 @@ assert.equal(plans.length,8);for(const key of ['ng-web','global-web','communitie
 const request={title:'Need an online store',description:'I need an online store using Shopify checkout integration. Budget $1200.',url:'https://buyer.example/request?utm_source=x',research:false};
 const assessed=policy.assessWebLead(request,caps,preferences);assert.equal(assessed.kind,'REQUEST_SIGNAL');assert.equal(assessed.url,'https://buyer.example/request');assert.equal(assessed.budget,'$1200');assert.equal(assessed.matches[0].capabilityId,'cap');
 for(const sample of [{...request,url:'https://127.0.0.1'},{...request,title:'How to build an online store'},{...request,title:'We are hiring',description:'We are hiring a Shopify web developer. Salary and benefits.'}])assert.equal(policy.assessWebLead(sample,caps,preferences),null);
-assert.equal(policy.assessWebLead({...request,description:'Our new store launches today with online orders through Shopify.',title:'New online store launching',research:true},caps,preferences).kind,'RESEARCH_LEAD');
+assert.equal(policy.assessWebLead({...request,description:'Our shop manages online store orders through WhatsApp and manually tracks purchases in spreadsheets.',title:'New online store launching',research:true},caps,preferences).kind,'RESEARCH_LEAD');
 assert.equal(policy.assessWebLead({...request,description:'I need an online store with Shopify checkout integration.'},caps,{...preferences,requireBudget:true}),null);assert.equal(policy.assessWebLead(request,caps,{...preferences,minimumScore:100}),null);
 // Production false positive: directory copy must never become a buyer request.
 const directory={title:'Top US Outsourcing Software Development Companies | 2026',description:'KrishaWeb is a full-service digital agency building web, software, AI, and marketing solutions. Our clients include startups seeking a senior-only mobile app partner in the $40K-$100K range. Send a formal request for proposal (RFP) to let agencies outline deliverables, timelines, and pricing clearly.',url:'https://www.designrush.com/agency/software-development/outsourcing/us',research:false};
@@ -27,6 +27,17 @@ assert.equal(policy.publishedBuyerBudget('Agency packages start at $40K-$100K.')
 assert.equal(policy.publishedBuyerBudget('Project budget is unknown; rate $40 per hour.'),null);
 assert.equal(policy.assessWebLead({...request,title:'Website development request for proposal',description:'The Council invites proposals for website development. Submission deadline 30 November; project budget GBP 20,000.'},caps,preferences).kind,'REQUEST_SIGNAL');
 assert.equal(policy.assessWebLead({...request,title:'Website request for proposal template',description:'Download our template to learn about software procurement and submission deadlines.'},caps,preferences),null);
+const liveFixtures = JSON.parse(fs.readFileSync('scripts/fixtures/commercial-live-false-positives-20261016.json','utf8'));
+for (const fixture of liveFixtures) {
+  const actual = policy.assessWebLead(fixture,caps,preferences);
+  assert.equal(actual?.kind ?? null, fixture.expected, fixture.title);
+}
+const freelancer = policy.assessWebLead(liveFixtures[1],caps,preferences);
+assert.equal(freelancer.budget,'£250-750 GBP');
+for(const phrase of ['Custom UI when you need it: see what a client portal needs to work.','Your client needs a website to improve business performance.','The client portal needs forms and software integrations.'])assert.equal(policy.assessWebLead({...request,title:'Customer portal software',description:phrase},caps,preferences),null);
+assert.equal(policy.assessWebLead({...request,title:'Website designer wanted',description:'I’m looking for an experienced web developer to build a website for my bakery.'},caps,preferences).kind,'REQUEST_SIGNAL');
+assert.equal(policy.assessWebLead({...request,title:'Software development team',description:'I am looking for developers to join our in-house team. Revenue-based payment is not guaranteed.'},caps,preferences),null);
+console.log('PASS: all five exact live excerpts; generic client nouns cannot impersonate buyers; instructional research and in-house revenue-share recruitment rejected; Freelancer project budget retained.');
 console.log('PASS: DesignRush seller directory rejected; rankings, seller pitches and generic advice rejected; explicit buyer and procurement evidence retained; budget suffixes and currency ranges preserved.');
 console.log('PASS: Nigeria/global queries, small websites/stores, catalogue rotation, request/research separation, safe URLs, career/tutorial rejection and budget/score preferences.');
 let authorized=true,enabled=true,rows=[],logs=[],calls=0,seq=0,mutex=Promise.resolve();
@@ -37,8 +48,8 @@ const db={
  clientProspect:{findFirst:async q=>rows.find(r=>matchesWhere(r,q.where))??null,count:async q=>rows.filter(r=>matchesWhere(r,q.where)).length,findMany:async q=>rows.filter(r=>matchesWhere(r,q.where)).slice(q.skip,q.skip+q.take),create:async({data})=>{const row={...data,id:'lead'+ ++seq,notes:'',updatedAt:new Date(),lastSeenAt:new Date(),matches:data.matches?.create??[]};rows.push(row);return row;},updateMany:async({where,data})=>{const r=rows.find(r=>matchesWhere(r,where));if(!r)return {count:0};Object.assign(r,data,{updatedAt:new Date(Date.now()+10)});return {count:1};}}
 };
 db.$transaction=fn=>{const p=mutex.then(async()=>{const a=structuredClone(rows),b=structuredClone(logs);try{return await fn(db);}catch(e){rows=a;logs=b;throw e;}});mutex=p.catch(()=>{});return p;};
-let failSearch=false;
-const collector=load('server/opportunities/client-collector.ts',{'server-only':{},'@/lib/prisma':{prisma:db},'./search':{searchWeb:async()=>{calls++;if(failSearch)throw Error('provider unavailable');return {web:{results:Array.from({length:8},(_,i)=>({...request,url:'https://buyer.example/'+(calls*8+i)}))}};}},'./client-discovery-policy':policy,'./commercial-matching':matching});
+let failSearch=false, contaminate=false;
+const collector=load('server/opportunities/client-collector.ts',{'server-only':{},'@/lib/prisma':{prisma:db},'./search':{searchWeb:async()=>{calls++;if(failSearch)throw Error('provider unavailable');return {web:{results:Array.from({length:8},(_,i)=>({...request,...(contaminate?{title:'Workflow software',description:'Software for managing a portal and orders.',extra_snippets:[request.description]}:{}),url:'https://buyer.example/'+(calls*8+i)}))}};}},'./client-discovery-policy':policy,'./commercial-matching':matching});
 const responses={apiError:(code,message,status)=>Response.json({code,message},{status}),apiSuccess:(data,status=200)=>Response.json({success:true,data},{status})};
 const api=load('server/opportunities/client-acquisition.ts',{'server-only':{},'@/lib/prisma':{prisma:db},'@/server/api/responses/api-response':responses,'./client-collector':collector,'./client-discovery-policy':policy,'./client-discovery-intake':intake});
 process.env.OPPORTUNITY_SEARCH_API_KEY='fake-test-key';authorized=false;assert.equal((await api.clientAcquisition('client:detail',{id:'lead1'},'owner')).status,403);assert.equal((await collector.runCommercialCollection('owner')).status,'unavailable');assert.equal(calls,0);authorized=true;
@@ -58,6 +69,15 @@ console.log('PASS: list/detail isolation, pagination clamp, qualification gate, 
 logs.find(l=>l.action==='CLIENT_DISCOVERY_RUN').createdAt=new Date(Date.now()-21*3600000);calls=0;
 const repeat=await collector.runCommercialCollection('owner');assert.equal(repeat.added,25);assert.equal(repeat.existing,25);assert.equal(new Set(rows.filter(r=>r.ownerId==='owner').map(r=>r.canonicalKey)).size,50);assert.equal(rows[0].notes,oldNotes);assert.equal(rows[0].state,'REVIEW');
 logs.filter(l=>l.action==='CLIENT_DISCOVERY_RUN').forEach(l=>l.createdAt=new Date(Date.now()-21*3600000));failSearch=true;const before=structuredClone(rows);const failed=await collector.runCommercialCollection('owner');assert.equal(failed.status,'failed');assert.deepEqual(rows,before);assert.equal((await collector.runCommercialCollection('owner')).status,'cooldown');
+failSearch=false;contaminate=true;
+logs.filter(l=>l.action==='CLIENT_DISCOVERY_RUN').forEach(l=>l.createdAt=new Date(Date.now()-21*3600000));
+const beforeContamination=structuredClone(rows);
+const contaminationRun=await collector.runCommercialCollection('owner');
+assert.equal(contaminationRun.added,0);assert.deepEqual(rows,beforeContamination);
+assert.equal(logs.filter(l=>l.action==='CLIENT_DISCOVERY_RUN').at(-1).metadata.admissionPolicyVersion,3);
+assert.equal(rows.find(r=>r.ownerId==='owner').qualification.admissionPolicyVersion,3);
+assert.equal(rows.find(r=>r.ownerId==='owner').qualification.intentEvidenceOrigin,'PRIMARY_SEARCH_DESCRIPTION');
+console.log('PASS: buyer wording present only in mixed extra snippets cannot create a lead; run and lead admission provenance recorded.');
 console.log('PASS: repeat discovery preserves decisions/notes; all-failed searches preserve records with bounded backoff. No live database or network used.');
 let personalCalls=0,commercialCalls=0;
 process.env.CRON_SECRET='test-cron-secret';process.env.OPPORTUNITY_OWNER_ID='owner';

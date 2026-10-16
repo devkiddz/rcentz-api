@@ -16,6 +16,7 @@ async function audit() {
   });
   const preferences = {regions:[],industries:[],engagementTypes:[],preferredSources:[],businessProblems:[],minimumScore:0,requireBudget:false,includeUnpriced:true};
   const flagged = [];
+  const retained = [];
   for (const row of rows) {
     const q: Record<string, unknown> = row.qualification && typeof row.qualification === 'object' && !Array.isArray(row.qualification) ? row.qualification : {};
     const title = typeof q.title === 'string' ? q.title : '';
@@ -24,10 +25,12 @@ async function audit() {
     const assessed = assessWebLead({title,description,url,research:q.kind === 'RESEARCH_LEAD'},[],preferences);
     if (!assessed || row.budgetSignal !== assessed.budget) flagged.push({
       id:row.id,title:title.slice(0,160),state:row.state,
+      savedPolicyVersion:q.admissionPolicyVersion ?? null,
       reason:!assessed?'Does not satisfy current buyer/research admission':'Budget needs source review',
       preserveReview:row.notes.trim().length > 0 || !['NEW','REVIEW'].includes(row.state),
     });
+    else retained.push({id:row.id,title:title.slice(0,160),state:row.state,warning:'Admission only; verify original source, freshness, technology requirements and commercial fit.'});
   }
-  console.log(JSON.stringify({mode:'READ_ONLY',scanned:rows.length,total,hasMore:total>rows.length,flagged},null,2));
+  console.log(JSON.stringify({mode:'READ_ONLY',scanned:rows.length,total,hasMore:total>rows.length,assessmentPolicyVersion:3,flagged,retained},null,2));
 }
 audit().catch(error => { console.error(error instanceof Error ? error.message : 'Audit failed');process.exitCode=1; }).finally(async () => prisma.$disconnect());

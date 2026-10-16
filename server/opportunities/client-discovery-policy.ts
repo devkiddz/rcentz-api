@@ -30,14 +30,15 @@ export function commercialQueries(settings: Preferences, capabilities:Capability
  return [...plans,extras[offset],extras[(offset+1)%extras.length]].map(p=>({...p,query:p.query.slice(0,500)}));
 }
 const tech = /\b(website|web design|web developer|landing page|ecommerce|e-commerce|online store|shopify|software|customer portal|crm|booking|automation|database|web app|application development)\b/i;
-const hiring = /\b(we are hiring|job vacancy|apply for (?:this |the )?(?:job|role|position)|salary and benefits|send your cv|full.time employee|careers? at)\b/i;
-const editorial = /\b(how to|step.by.step|tutorial|beginner.s guide|learn to|course|(?:top|best|leading)\b.{0,75}\b(?:agencies|companies|developers|providers|tools|services)|agency rankings|directory|comparison|buying guide|templates?|examples?)\b/i;
+const hiring = /\b(we are hiring|job vacancy|apply for (?:this |the )?(?:job|role|position)|salary and benefits|send your cv|full.time employee|careers? at|in.house team|join (?:our|an? in.house) team|revenue.based|revenue.share|equity.only|not guaranteed)\b/i;
+const editorial = /\b(^how\b|how to|step.by.step|tutorial|beginner.s guide|learn to|course|(?:top|best|leading)\b.{0,75}\b(?:agencies|companies|developers|providers|tools|services|software|platforms|portals)|agency rankings|directory|comparison|buying guide|guide to|what you (?:actually )?need to know|templates?|examples?)\b/i;
 const seller = /\b(we (?:build|design|offer|provide|deliver|help)|our (?:web design|development services)|hire us|full.service (?:digital |web )?agency|website design services|web development agency|our clients)\b/i;
 const need = /\b(?:need(?:s)?|looking for|seeking|want(?:s)? to (?:build|hire|commission)|planning to (?:build|commission)|require(?:s)?|searching for)\b.{0,100}\b(?:website|web (?:designer|developer|development)|landing page|online store|ecommerce|e-commerce|shopify|software|portal|crm|booking|automation|developer|agency|development partner)\b/i;
-const buyerVoice = /\b(?:i|we|our (?:business|company|team|store|shop|clinic|organisation|organization|charity)|my (?:business|company|store|shop)|(?:the |our )?client)\b.{0,65}\b(?:need(?:s)?|(?:am |are |is )?(?:looking for|seeking|searching for)|want(?:s)? to (?:build|hire|commission)|planning to (?:build|commission)|require(?:s)?)\b/i;
+// The speaker must be the buyer, not a generic "client portal" or quoted example.
+const buyerVoice = /^(?:(?:hi|hello|hey)[,!]?\s+)?(?:i(?:['’]m| am)?|we(?:['’]re| are)?|our (?:business|company|team|store|shop|clinic|organisation|organization|charity)(?: is)?|my (?:business|company|store|shop)(?: is)?|(?:our|my|the) client(?: is)?)\s+(?:currently\s+)?(?:need(?:s)?|looking for|seeking|searching for|want(?:s)? to (?:build|hire|commission)|planning to (?:build|commission)|require(?:s)?)\b/i;
 const procurement = /\b(?:request for proposals?|request for quotations?|invitation (?:to bid|for bids|to tender)|tender (?:notice|invitation)|rfp|rfq)\b/i;
 const procurementAction = /\b(?:invites? (?:proposals|bids|tenders|qualified)|(?:is |are )?(?:issuing|issued|seeking proposals)|submit (?:your |a |the )?(?:proposal|bid)|submission (?:deadline|date)|closing date|deadline|tender reference|procurement reference|proposals? (?:are )?due)\b/i;
-const researchVoice = /\b(?:we|our|my)\b.{0,100}\b(?:launch(?:ing|es|ed)?|open(?:ing|ed)?|orders? (?:via|through|on)|book(?:ing|ings)? (?:via|through|on)|manual(?:ly)?|spreadsheet|whatsapp)\b/i;
+const researchVoice = /^(?:we|our (?:business|company|store|shop|clinic)|my (?:business|company|store|shop))\b.{0,120}\b(?:manual(?:ly)?|spreadsheets?|orders? (?:via|through|on) whatsapp|bookings? (?:via|through|on) whatsapp)\b/i;
 const words = (value: string) => new Set(value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(word => word.length > 3 && !['with','from','your','this','that','business','company','need','website','development'].includes(word)));
 
 /** Excerpt admission only: an explicit statement earns review, never verified buyer status. */
@@ -45,26 +46,26 @@ export function commercialIntent(title: string, description: string, url: string
   const host = new URL(url).hostname.replace(/^www\./, '');
   if (editorial.test(title)) return null;
   if (['designrush.com','clutch.co','goodfirms.co','sortlist.com','upcity.com','agencyspotter.com'].some(directory => host === directory || host.endsWith('.' + directory))) return null;
-  const sentences = (title + '. ' + description).split(/(?:[.!?]\s+|\n+)/).map(value => value.trim()).filter(Boolean);
+  const sentences = description.split(/(?:[.!?]\s+|\n+)/).map(value => value.trim()).filter(Boolean);
   const requestEvidence = sentences.find(sentence => !seller.test(sentence) && !hiring.test(sentence) && need.test(sentence) && buyerVoice.test(sentence));
   const formalRequest = procurement.test(title) && tech.test(title + ' ' + description) && procurementAction.test(description) && !seller.test(title);
   if (hiring.test(title + ' ' + description) && !formalRequest) return null;
   if (requestEvidence || formalRequest) return {kind: 'REQUEST_SIGNAL' as const, evidence: requestEvidence ?? title};
-  if (!research || seller.test(title + ' ' + description) || !researchVoice.test(description)) return null;
-  return {kind: 'RESEARCH_LEAD' as const, evidence: 'First-person business activity; purchasing intent is not established.'};
+  if (!research || seller.test(title + ' ' + description) || !sentences.some(sentence => researchVoice.test(sentence))) return null;
+  return {kind: 'RESEARCH_LEAD' as const, evidence: sentences.find(sentence => researchVoice.test(sentence))!};
 }
 
 /** Preserve the published amount/range; unrelated prices and agency rates are not buyer budgets. */
-export function publishedBuyerBudget(text: string): string | null {
+export function publishedBuyerBudget(text: string, projectListing = false): string | null {
   const currency = '(?:USD|GBP|NGN|EUR|US\\$|\\$|£|₦|€)';
-  const amount = '\\d[\\d,]*(?:\\.\\d+)?\\s*(?:[kKmM]\\b|thousand\\b|million\\b)?';
-  const pattern = new RegExp(currency + '\\s*' + amount + '(?:\\s*(?:[-–—]|to)\\s*(?:' + currency + '\\s*)?' + amount + ')?', 'gi');
+  const amount = '\\d[\\d,]*(?:\\.\\d+)?(?:\\s*(?:[kKmM]\\b|thousand\\b|million\\b))?';
+  const pattern = new RegExp(currency + '\\s*' + amount + '(?:\\s*(?:[-–—]|to)\\s*(?:' + currency + '\\s*)?' + amount + ')?(?:\\s+(?:USD|GBP|NGN|EUR)\\b)?', 'gi');
   for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0;
     const before = text.slice(Math.max(0, index - 80), index);
     const after = text.slice(index + match[0].length, index + match[0].length + 45);
     const context = before + ' ' + after;
-    if (!/\b(?:budget|funding|project value|contract value|estimated cost|fixed.price|can pay|will pay|paying|allocated|spend)\b/i.test(context)) continue;
+    if (!/\b(?:budget|funding|project value|contract value|estimated cost|fixed.price|can pay|will pay|paying|allocated|spend)\b/i.test(context) && !(projectListing && /projects? for\s*$/i.test(before))) continue;
     if (/^\s*(?:per\s+(?:hour|month|year)|\/\s*(?:hr|hour|month|year)|annually|salary)\b/i.test(after)) continue;
     return match[0].trim();
   }
@@ -87,7 +88,8 @@ export function assessWebLead(input: {title:string;description:string;url:string
     return hits.length >= 2 ? [{capabilityId:capability.id,score:Math.min(85,20+hits.length*8),rationale:'Shared subject terms: '+hits.slice(0,8).join(', ')+'. Delivery evidence and capacity still require review.'}] : [];
   }).sort((a,b) => b.score-a.score).slice(0,12);
   const score = Math.min(90,(request?40:15)+(matches[0]?.score?Math.round(matches[0].score/3):0));
-  const budget = request ? publishedBuyerBudget(text) : null;
+  const projectListing = new URL(url).hostname.replace(/^www\./, '') === 'freelancer.com' && new URL(url).pathname.startsWith('/projects/');
+  const budget = request ? publishedBuyerBudget(text, projectListing) : null;
   if (score < preferences.minimumScore || ((preferences.requireBudget || !preferences.includeUnpriced) && !budget)) return null;
   const warnings = [request?'An explicit buyer statement or procurement notice appears in the excerpt; verify its author, date and current availability.':'Research lead only: business activity does not establish purchasing intent.','Location, Nigeria eligibility, budget, deadline and capacity remain unconfirmed unless supported by the original source.','Search excerpts may be outdated or incomplete. No contact or delivery commitment is authorized.'];
   return {url,title,description,kind:intent.kind,intentEvidence:intent.evidence,score,budget,matches,warnings};
