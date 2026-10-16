@@ -49,7 +49,7 @@ export async function runCommercialCollection(ownerId:string,scheduled=false){
    const candidate=assessWebLead({title:typeof item.title==='string'?item.title:'',description:[typeof item.description==='string'?item.description:'',...(Array.isArray(item.extra_snippets)?item.extra_snippets.filter((v):v is string=>typeof v==='string').slice(0,3):[])].join(' ').slice(0,4000),url:typeof item.url==='string'?item.url:'',research:batch.plan.kind==='RESEARCH'},capabilities,preferences);
    if(!candidate||seen.has(candidate.url)){stats.skipped++;continue;}seen.add(candidate.url);
    const problemMatches=matchCommercialProblems({text:candidate.title+' '+candidate.description,problems,groups,limit:3});
-   const qualification={kind:candidate.kind,title:candidate.title,sourceUrl:candidate.url,query:batch.plan.query,searchProvider:'Brave Search',capturedAt:new Date().toISOString(),warnings:candidate.warnings,problemMatches,humanReviewRequired:true};
+   const qualification={kind:candidate.kind,admissionPolicyVersion:2,intentEvidence:candidate.intentEvidence,title:candidate.title,sourceUrl:candidate.url,query:batch.plan.query,searchProvider:'Brave Search',capturedAt:new Date().toISOString(),warnings:candidate.warnings,problemMatches,humanReviewRequired:true};
    const outcome=await prisma.$transaction(async tx=>{
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'client-discovery:'+profile.id}))`;
     const previous=await tx.clientProspect.findFirst({where:{companyProfileId:profile.id,ownerId,OR:[{canonicalKey:candidate.url},{evidenceLinks:{has:candidate.url}},{source:'PUBLIC_WEB',externalId:candidate.url}]},select:{id:true}});
