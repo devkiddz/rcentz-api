@@ -8,9 +8,7 @@ import {
   prisma
 } from '@/lib/prisma';
 
-import {
-  requireAdmin
-} from '@/features/auth/server/require-admin';
+import { createGovernanceActor } from '@/server/projects/governance/create-governance-actor';
 
 import {
   createNotificationInTransaction
@@ -515,8 +513,8 @@ function revalidateProject(
 export async function createAdminProjectMilestone(
   input: ProjectMilestoneMutationInput
 ): Promise<ProjectMilestoneMutationResult> {
-  const admin =
-    await requireAdmin();
+  const actor =
+    await createGovernanceActor();
 
   const resolved =
     resolveInput(input);
@@ -527,6 +525,9 @@ export async function createAdminProjectMilestone(
 
   const data =
     resolved.data;
+  if (data.status !== 'PLANNED' || data.progress !== 0) {
+    return { success: false, error: 'New milestones begin as planned at 0%. Completion is governed by verified criteria and review.' };
+  }
 
   const project =
     await prisma.project.findUnique({
@@ -575,6 +576,10 @@ export async function createAdminProjectMilestone(
 
   await prisma.$transaction(
     async tx => {
+      const projectLock = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "Project" WHERE "id" = ${project.id} FOR UPDATE`;
+      if (projectLock.length !== 1) throw new Error('Project no longer exists.');
+      await actor.authorize(tx, project.id, 'milestone:manage');
       const milestone =
         await tx.projectMilestone.create({
           data: {
@@ -582,7 +587,7 @@ export async function createAdminProjectMilestone(
               project.id,
 
             createdById:
-              admin.id,
+              actor.userId,
 
             title:
               data.title,
@@ -641,7 +646,7 @@ export async function createAdminProjectMilestone(
             project.id,
 
           userId:
-            admin.id,
+            actor.userId,
 
           type:
             'CREATED',
@@ -726,8 +731,8 @@ export async function updateAdminProjectMilestone(
   milestoneId: string,
   input: ProjectMilestoneMutationInput
 ): Promise<ProjectMilestoneMutationResult> {
-  const admin =
-    await requireAdmin();
+  const actor =
+    await createGovernanceActor();
 
   const normalizedMilestoneId =
     milestoneId.trim();
@@ -796,6 +801,10 @@ export async function updateAdminProjectMilestone(
     };
   }
 
+  if (current.status !== data.status || current.progress !== data.progress) {
+    return { success: false, error: 'Milestone status and progress are controlled by governance review, not direct editing.' };
+  }
+
   const duplicate =
     await prisma.projectMilestone.findFirst({
       where: {
@@ -848,15 +857,22 @@ export async function updateAdminProjectMilestone(
     data.status ===
       'COMPLETED';
 
-  const completedAt =
-    data.status ===
-    'COMPLETED'
-      ? current.completedAt ??
-        new Date()
-      : null;
-
   await prisma.$transaction(
     async tx => {
+      // All governance writers acquire Project -> Milestone locks in that order.
+      const parentLock = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "Project" WHERE "id" = ${data.projectId} FOR UPDATE`;
+      if (parentLock.length !== 1) throw new Error('Project no longer exists.');
+      await actor.authorize(tx, data.projectId, 'milestone:manage');
+      if (await tx.deliveryMilestone.findUnique({ where: { milestoneId: current.id } })) throw new Error('Provider-managed milestone: use commit markers');
+      const locked = await tx.$queryRaw<{ id: string; status: string; progress: number; completedAt: Date | null }[]>`
+        SELECT "id", "status", "progress", "completedAt" FROM "ProjectMilestone"
+        WHERE "id" = ${current.id} AND "projectId" = ${data.projectId}
+        FOR UPDATE`;
+      if (locked.length !== 1) throw new Error('Milestone no longer exists.');
+      if (locked[0].status !== data.status || locked[0].progress !== data.progress) {
+        throw new Error('Governed milestone status and progress must be changed through the approval workflow.');
+      }
       await tx.projectMilestone.update({
         where: {
           id:
@@ -900,7 +916,7 @@ export async function updateAdminProjectMilestone(
           dueDate:
             data.dueDate,
 
-          completedAt,
+          completedAt: locked[0].completedAt,
 
           completionNotes:
             data.completionNotes
@@ -913,7 +929,7 @@ export async function updateAdminProjectMilestone(
             current.project.id,
 
           userId:
-            admin.id,
+            actor.userId,
 
           type:
             becameCompleted
@@ -1038,8 +1054,8 @@ export async function deleteAdminProjectMilestone(
   projectId: string,
   milestoneId: string
 ): Promise<ProjectMilestoneMutationResult> {
-  const admin =
-    await requireAdmin();
+  const actor =
+    await createGovernanceActor();
 
   const normalizedProjectId =
     projectId.trim();
@@ -1155,6 +1171,17 @@ export async function deleteAdminProjectMilestone(
 
   await prisma.$transaction(
     async tx => {
+      const projectLock = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "Project" WHERE "id" = ${normalizedProjectId} FOR UPDATE`;
+      if (projectLock.length !== 1) throw new Error('Project no longer exists.');
+      await actor.authorize(tx, normalizedProjectId, 'milestone:manage');
+      if (await tx.deliveryMilestone.findUnique({ where: { milestoneId: normalizedMilestoneId } })) throw new Error('Provider-managed milestones cannot be deleted');
+      const milestoneLock = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "ProjectMilestone" WHERE "id" = ${milestone.id}
+        AND "projectId" = ${normalizedProjectId} FOR UPDATE`;
+      if (milestoneLock.length !== 1) throw new Error('Milestone no longer exists.');
+      const criteriaCount = await tx.projectMilestoneCriterion.count({ where: { milestoneId: milestone.id } });
+      if (criteriaCount > 0) throw new Error('Governed milestones cannot be deleted through the legacy action.');
       await tx.projectMilestone.delete({
         where: {
           id:
@@ -1168,7 +1195,7 @@ export async function deleteAdminProjectMilestone(
             milestone.project.id,
 
           userId:
-            admin.id,
+            actor.userId,
 
           type:
             'UPDATED',

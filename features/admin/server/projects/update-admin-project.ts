@@ -462,14 +462,22 @@ export async function updateAdminProject(
     }
   }
 
-  const completedAt =
-    status ===
-    'COMPLETED'
-      ? currentProject.completedAt ??
-        new Date()
-      : null;
-
-  await prisma.project.update({
+  await prisma.$transaction(async tx => {
+    // Serialize with governance operations and evaluate the persisted state,
+    // not the earlier form-read snapshot.
+    const locked = await tx.$queryRaw<{ id: string; status: string; progress: number; completedAt: Date | null }[]>`
+      SELECT "id", "status", "progress", "completedAt" FROM "Project"
+      WHERE "id" = ${projectId} FOR UPDATE`;
+    if (locked.length !== 1) throw new Error('Project no longer exists.');
+    const governed = await tx.projectMilestoneCriterion.count({
+      where: { milestone: { projectId } },
+    });
+    const deliveryCount = await tx.deliveryMilestone.count({ where: { milestone: { projectId } } });
+    if ((governed > 0 || deliveryCount > 0) &&
+        (locked[0].progress !== progress || locked[0].status !== status)) {
+      throw new Error('Governed project progress and completion status must be changed through the governance workflow.');
+    }
+    await tx.project.update({
     where: {
       id: projectId
     },
@@ -504,8 +512,13 @@ export async function updateAdminProject(
 
       startedAt,
       expectedEndAt,
-      completedAt
+      completedAt: (governed > 0 || deliveryCount > 0)
+        ? locked[0].completedAt
+        : status === 'COMPLETED'
+          ? locked[0].completedAt ?? new Date()
+          : null
     }
+    });
   });
 
   revalidatePath(

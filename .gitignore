@@ -23,6 +23,7 @@
 
 # environment
 .env*
+.env.recovery-test
 !.env.example
 
 # vercel
