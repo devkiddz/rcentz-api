@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   try {
     const payload = object(JSON.parse(body.toString('utf8'))), repository = object(payload.repository);
     if (typeof repository.full_name !== 'string' || typeof payload.ref !== 'string') return Response.json({ error: 'INVALID_EVENT' }, { status: 400 });
-    const source = sources().find(s => s.repository === (repository.full_name as string).toLowerCase() && payload.ref === `refs/heads/${s.branch}`);
+    const source = (await sources()).find(s => s.repository === (repository.full_name as string).toLowerCase() && payload.ref === `refs/heads/${s.branch}`);
     if (!source) return Response.json({ ignored: true });
     // Never trust payload commits; fetch current canonical branch history. Replays are cursor-idempotent.
     return Response.json(await synchronize(source));

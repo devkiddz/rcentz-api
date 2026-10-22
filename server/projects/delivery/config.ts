@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { prisma } from '@/lib/prisma';
 export type SourceConfig = {
   id: string; projectId: string; repository: string; branch: string; baselineSha: string;
   actorId: string; requiredChecks: string[]; vercelProjectId: string | null; vercelTeamId: string | null;
@@ -28,8 +29,19 @@ export function parseSources(raw: string): SourceConfig[] {
     ids.add(source.id); repos.add(key); return source;
   });
 }
-export function sources(): SourceConfig[] {
-  if (process.env.RCENTZ_DELIVERY_ENABLED !== 'true') throw new Error('DELIVERY_DISABLED');
-  return parseSources(process.env.RCENTZ_DELIVERY_SOURCES ?? '[]');
+export function deliveryEnabled(): boolean { return process.env.RCENTZ_DELIVERY_ENABLED === 'true'; }
+export async function sources(): Promise<SourceConfig[]> {
+  if (!deliveryEnabled()) throw new Error('DELIVERY_DISABLED');
+  const rows = await prisma.deliverySource.findMany({ where: { enabled: true }, take: 501, orderBy: { id: 'asc' } });
+  if (rows.length > 500) throw new Error('SOURCE_LIMIT');
+  return rows.map(row => {
+    if (!row.actorId || !row.baselineSha) throw new Error('SOURCE_INCOMPLETE');
+    const candidate: SourceConfig = { id: row.id, projectId: row.projectId, repository: row.repository,
+      branch: row.branch, baselineSha: row.baselineSha, actorId: row.actorId,
+      requiredChecks: row.requiredChecks, vercelProjectId: row.vercelProjectId, vercelTeamId: row.vercelTeamId };
+    const [validated] = parseSources(JSON.stringify([candidate]));
+    if (configHash(validated) !== row.configHash) throw new Error('SOURCE_CONFIG_CHANGED');
+    return validated;
+  });
 }
 export function configHash(source: SourceConfig): string { return createHash('sha256').update(JSON.stringify(source)).digest('hex'); }
