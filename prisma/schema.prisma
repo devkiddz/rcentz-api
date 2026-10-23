@@ -4221,6 +4221,12 @@ model DeliverySource {
   branch String
   configHash String
   cursorSha String
+  actorId String?
+  baselineSha String?
+  requiredChecks String[] @default([])
+  vercelProjectId String?
+  vercelTeamId String?
+  enabled Boolean @default(false)
   activeKey String?
   leaseToken String?
   leaseUntil DateTime?

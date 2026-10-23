@@ -18,6 +18,10 @@ function createPrismaClient() {
 
   return new PrismaClient({
     adapter,
+    transactionOptions: {
+      maxWait: 30000,
+      timeout: 60000,
+    },
   });
 }
 
