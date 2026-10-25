@@ -5,6 +5,7 @@ import { Prisma } from '@/generated/prisma/client';
 import { configHash, type SourceConfig } from './config';
 import { applyCommit, completionReady, sealMarker, type State, type Phase } from './policy';
 import { sealRequestDecision } from './seal-policy';
+import { projectCodeFromSlug, resolveScopedCommit } from './scoped-commit';
 import { readCommits, readEvidence } from './providers';
 import { persistGovernedProjectProgress } from '../governance/milestone-progress-persistence';
 
@@ -82,11 +83,19 @@ export async function synchronize(config: SourceConfig) {
       if (rows.length > 1000) throw new Error('SOURCE_MILESTONE_LIMIT');
       let state: State = { activeKey: current.activeKey, items: Object.fromEntries(rows.map(r => [r.key, { key: r.key, title: r.milestone.title, phase: r.phase as Phase, completionSha: r.completionSha }])) };
       const identities = new Map(rows.map(r => [r.key, { id: r.id, milestoneId: r.milestoneId }]));
+      // Identity is taken from the locked Project row, not the commit.
+      const project = await tx.project.findUniqueOrThrow({ where: { id: config.projectId }, select: { slug: true } });
+      const projectCode = projectCodeFromSlug(project.slug);
       let issues = 0;
       for (const commit of commits) {
+        const scoped = resolveScopedCommit(commit, projectCode);
         const before = state;
-        const next = applyCommit(state, commit); state = next.state;
-        const seal = sealMarker(commit.message);
+        // Malformed/foreign scoped markers must never inherit an active stream.
+        const next = scoped.issue
+          ? { state, key: null, issue: scoped.issue }
+          : applyCommit(state, scoped.commit);
+        state = next.state;
+        const seal = scoped.issue ? null : sealMarker(scoped.commit.message);
         let issue = next.issue;
         let activityKey = next.key;
         if (seal) {
@@ -107,7 +116,7 @@ export async function synchronize(config: SourceConfig) {
               projectId: config.projectId, createdById: config.actorId, title: item.title,
               slug: `git-${config.id}-${next.key}`.toLowerCase(), status: 'IN_PROGRESS',
               visibility: 'CLIENT', progress: 0, gitCommitSha: commit.sha, startedAt: new Date(commit.date),
-              description: `Tracked from ${config.repository} (${config.branch}). Milestone ${next.key}.`,
+              description: scoped.description ?? `Tracked from ${config.repository} (${config.branch}). Milestone ${next.key}.`,
             } });
             const delivery = await tx.deliveryMilestone.create({ data: { sourceId: config.id, key: next.key, milestoneId: milestone.id, phase: item.phase, completionSha: item.completionSha } });
             identity = { id: delivery.id, milestoneId: milestone.id }; identities.set(next.key, identity);
@@ -120,7 +129,7 @@ export async function synchronize(config: SourceConfig) {
           } });
           if (before.items[next.key]?.phase !== item.phase) await tx.projectGovernanceEvent.create({ data: {
             projectId: config.projectId, milestoneId: identity.milestoneId, actorId: config.actorId,
-            operation: 'delivery:marker', snapshot: { sha: commit.sha, repository: config.repository, key: next.key, from: before.items[next.key]?.phase ?? null, to: item.phase },
+            operation: 'delivery:marker', snapshot: { sha: commit.sha, repository: config.repository, projectCode, key: next.key, description: scoped.description, from: before.items[next.key]?.phase ?? null, to: item.phase },
           } });
         }
         await tx.deliveryCommit.create({ data: { sourceId: config.id, sha: commit.sha, message: commit.message,
