@@ -31,9 +31,9 @@ function assertRequest(x: ReconciliationRequest) {
  * calling this function. A client-submitted candidate is NEVER trusted.
  * This function does not fetch GitHub, complete milestones or edit commit text.
  */
-async function commitVerifiedReconciliation(x: ReconciliationRequest) {
+export async function performReconciliationTransaction(tx: Prisma.TransactionClient, x: ReconciliationRequest) {
   assertRequest(x);
-  return prisma.$transaction(async tx => {
+  // Caller owns the transaction; only the production entrypoint can acquire its own.
     // Serialize approvals with synchronization and concurrent reviewer attempts.
     const lockedSource = await tx.$queryRaw<{id:string}[]>`
       SELECT "id" FROM "DeliverySource" WHERE "id" = ${x.sourceId} FOR UPDATE`;
@@ -112,7 +112,12 @@ async function commitVerifiedReconciliation(x: ReconciliationRequest) {
       }
     } });
     return { eventId: event.id, decision: x.decision, linkCreated: outcome.intent === 'LINK_ONLY' };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 });
+  // Transaction commit/rollback remains the responsibility of the caller.
+}
+
+async function commitVerifiedReconciliation(x: ReconciliationRequest) {
+  return prisma.$transaction(tx => performReconciliationTransaction(tx, x),
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 });
 }
 
 /**
