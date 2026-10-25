@@ -3,12 +3,44 @@ import { createHash, randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@/generated/prisma/client';
 import { configHash, type SourceConfig } from './config';
-import { applyCommit, completionReady, type State, type Phase } from './policy';
+import { applyCommit, completionReady, sealMarker, type State, type Phase } from './policy';
+import { sealRequestDecision } from './seal-policy';
 import { readCommits, readEvidence } from './providers';
 import { persistGovernedProjectProgress } from '../governance/milestone-progress-persistence';
 
 type Tx = Prisma.TransactionClient;
 const json = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+/** An MSS event is an auditable request. Seal only after existing provider gates pass.
+ * Unique behavior is enforced under the same locked Project/Source transaction.
+ */
+async function recordSealRequest(tx: Tx, config: SourceConfig, milestoneId: string, key: string, sha: string, phase: Phase, completionSha: string | null) {
+  const decision = sealRequestDecision(phase, completionSha);
+  if (decision === 'UNKNOWN' || decision === 'INCOMPLETE') return 'SEAL_REQUIRES_COMPLETION';
+  const already = await tx.projectGovernanceEvent.findFirst({ where: {
+    projectId: config.projectId, milestoneId, operation: 'delivery:seal-request',
+  }, select: { id: true } });
+  if (already) return 'DUPLICATE_SEAL_REQUEST';
+  await tx.projectGovernanceEvent.create({ data: {
+    projectId: config.projectId, milestoneId, actorId: config.actorId,
+    operation: 'delivery:seal-request', snapshot: { key, sha, repository: config.repository, branch: config.branch, completionSha },
+  } });
+  if (decision === 'SEAL') await finalizeSeal(tx, config, milestoneId, key, completionSha!);
+  return null;
+}
+async function finalizeSeal(tx: Tx, config: SourceConfig, milestoneId: string, key: string, completionSha: string) {
+  const request = await tx.projectGovernanceEvent.findFirst({ where: {
+    projectId: config.projectId, milestoneId, operation: 'delivery:seal-request',
+  }, select: { id: true } });
+  if (!request) return;
+  const prior = await tx.projectGovernanceEvent.findFirst({ where: {
+    projectId: config.projectId, milestoneId, operation: 'delivery:sealed',
+  }, select: { id: true } });
+  if (prior) return;
+  await tx.projectGovernanceEvent.create({ data: {
+    projectId: config.projectId, milestoneId, actorId: config.actorId,
+    operation: 'delivery:sealed', snapshot: { key, completionSha, repository: config.repository, branch: config.branch, sealRequestId: request.id },
+  } });
+}
 async function authorizedProject(tx: Tx, config: SourceConfig) {
   const project = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Project" WHERE "id" = ${config.projectId} FOR UPDATE`;
   if (project.length !== 1) throw new Error('PROJECT_NOT_FOUND');
@@ -54,8 +86,20 @@ export async function synchronize(config: SourceConfig) {
       for (const commit of commits) {
         const before = state;
         const next = applyCommit(state, commit); state = next.state;
-        if (next.issue) issues++;
-        if (next.key) {
+        const seal = sealMarker(commit.message);
+        let issue = next.issue;
+        let activityKey = next.key;
+        if (seal) {
+          const identity = identities.get(seal.key);
+          const item = state.items[seal.key];
+          if (identity && item) {
+            issue = await recordSealRequest(tx, config, identity.milestoneId, seal.key, commit.sha, item.phase, item.completionSha);
+            activityKey = seal.key;
+          } else issue = 'UNKNOWN_MILESTONE';
+        }
+        if (issue) issues++;
+        // MSS must not rewrite an already verified project milestone's status.
+        if (next.key && !seal) {
           const item = state.items[next.key];
           let identity = identities.get(next.key);
           if (!identity) {
@@ -80,7 +124,7 @@ export async function synchronize(config: SourceConfig) {
           } });
         }
         await tx.deliveryCommit.create({ data: { sourceId: config.id, sha: commit.sha, message: commit.message,
-          committedAt: new Date(commit.date), deliveryMilestoneId: next.key ? identities.get(next.key)!.id : null, issue: next.issue } });
+          committedAt: new Date(commit.date), deliveryMilestoneId: activityKey ? identities.get(activityKey)!.id : null, issue } });
       }
       await persistGovernedProjectProgress(tx, config.projectId);
       await tx.deliverySource.update({ where: { id: config.id }, data: { activeKey: state.activeKey,
@@ -93,6 +137,7 @@ export async function synchronize(config: SourceConfig) {
       if (!item.completionSha) continue;
       const evidence = await readEvidence(config, item.completionSha);
       const { observedAt: _time, ...facts } = evidence;
+      void _time;
       const fingerprint = createHash('sha256').update(JSON.stringify(facts)).digest('hex');
       await prisma.$transaction(async tx => {
         await assertLease(tx, config, lease);
@@ -107,6 +152,9 @@ export async function synchronize(config: SourceConfig) {
         if (complete) {
           await tx.projectGovernanceEvent.create({ data: { projectId: config.projectId, milestoneId: item.milestoneId,
             actorId: config.actorId, operation: 'delivery:complete', snapshot: json(evidence) } });
+          // An earlier MSS request can now seal; the provider verification result
+          // remains the authority for milestone completion.
+          await finalizeSeal(tx, config, item.milestoneId, (await tx.deliveryMilestone.findUniqueOrThrow({ where: { id: item.id } })).key, evidence.sha);
           await persistGovernedProjectProgress(tx, config.projectId);
         }
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 });

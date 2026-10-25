@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { requireApplicationIdentity } from '@/server/api/auth/require-application-identity';
 import { boundedBytes, object } from '@/server/projects/delivery/http';
 import { mayReadDelivery } from '@/server/projects/delivery/read-policy';
+import { attributeActivityWindows } from '@/server/projects/delivery/activity-windows';
 import { apiError, apiSuccess } from '@/server/api/responses/api-response';
 export const runtime = 'nodejs';
 const path = '/api/v1/internal/systems/project-delivery';
@@ -16,13 +17,37 @@ export async function POST(request: Request) {
     if (!identity.ok) return identity.response;
     const user = await prisma.user.findUnique({ where: { id: identity.userId }, select: { id: true, status: true, role: true } });
     const milestone = await prisma.projectMilestone.findFirst({ where: { id: input.milestoneId, projectId: input.projectId },
-      select: { id: true, visibility: true, project: { select: { clientId: true } }, delivery: { select: { id: true, phase: true, completionSha: true, source: { select: { repository: true, branch: true } } } } } });
+      select: { id: true, visibility: true, project: { select: { clientId: true } }, delivery: { select: { id: true, phase: true, completionSha: true, source: { select: { id: true, repository: true, branch: true } } } } } });
     const assignment = await prisma.projectAssignment.findUnique({ where: { projectId_userId: { projectId: input.projectId, userId: identity.userId } }, select: { role: true, removedAt: true } });
     if (!user || !milestone || !mayReadDelivery({ ...user, userId: user.id, clientId: milestone.project.clientId,
       assignmentRole: assignment?.role ?? null, assignmentActive: Boolean(assignment && assignment.removedAt === null), visibility: milestone.visibility }))
       return apiError('FORBIDDEN', 'Delivery activity unavailable', 403);
     if (!milestone.delivery) return apiSuccess({ managed: false, phase: null, repository: null, branch: null, commits: [], nextCursor: null, evidence: null });
     const delivery = milestone.delivery;
+    // Source activity includes commits that predate the milestone-marker convention.
+    // Only SUPER_ADMIN can read unassigned development commits because they have
+    // not passed individual milestone visibility/acceptance rules.
+    const unassignedActivity = user.role === 'SUPER_ADMIN'
+      ? await prisma.deliveryCommit.findMany({
+          where: { sourceId: delivery.source.id, deliveryMilestoneId: null },
+          orderBy: [{ committedAt: 'desc' }, { id: 'desc' }],
+          take: 50,
+          select: { id: true, sha: true, message: true, committedAt: true, issue: true },
+        })
+      : [];
+    // Admin observability: read a bounded source history. The API never treats
+    // timeline association as governed completion or client-visible acceptance.
+    const timelineRows = user.role === 'SUPER_ADMIN'
+      ? await prisma.deliveryCommit.findMany({
+          where: { sourceId: delivery.source.id },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 501,
+          select: { id: true, sha: true, message: true, committedAt: true },
+        })
+      : [];
+    const activityTimeline = user.role === 'SUPER_ADMIN'
+      ? attributeActivityWindows(timelineRows.slice(0, 500).reverse())
+      : [];
+    const activityTimelineTruncated = timelineRows.length > 500;
     const [commits, latest] = await Promise.all([
       prisma.deliveryCommit.findMany({ where: { deliveryMilestoneId: delivery.id, ...(input.cursor ? { id: { gt: input.cursor as string } } : {}) },
         orderBy: { id: 'asc' }, take: 51, select: { id: true, sha: true, message: true, committedAt: true } }),
@@ -31,6 +56,10 @@ export async function POST(request: Request) {
     ]);
     return apiSuccess({ managed: true, phase: delivery.phase, repository: delivery.source.repository, branch: delivery.source.branch,
       commits: commits.slice(0, 50).map(c => ({ ...c, message: c.message.split(/\r?\n/, 1)[0] })),
-      nextCursor: commits.length > 50 ? commits[49].id : null, evidence: latest?.snapshot ?? null });
+      nextCursor: commits.length > 50 ? commits[49].id : null, evidence: latest?.snapshot ?? null,
+      // Additive field: existing Systems consumers keep their original response contract.
+      unassignedActivity: unassignedActivity.map(c => ({ ...c, message: c.message.split(/\r?\n/, 1)[0] })),
+      activityTimeline, activityTimelineTruncated,
+    });
   } catch { return apiError('READ_FAILED', 'Delivery activity unavailable', 503); }
 }

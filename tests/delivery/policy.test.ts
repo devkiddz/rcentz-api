@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyCommit, marker, completionReady, firstParentBatch, type State, type Commit } from '../../server/projects/delivery/policy';
+import { applyCommit, marker, sealMarker, candidateMilestoneKey, versionMarker, completionReady, firstParentBatch, type State, type Commit } from '../../server/projects/delivery/policy';
 import { parseSources } from '../../server/projects/delivery/config';
 import { projectCalculatedProgress, canApproveMilestone } from '../../server/projects/governance/milestone-policy';
 import { validateEvidence } from '../../server/projects/governance/verification-evidence';
@@ -91,4 +91,39 @@ test('source configuration requires mapping, baseline, gate and unique repositor
   assert.throws(() => parseSources(JSON.stringify([{ ...config, vercelProjectId: null }])));
   assert.throws(() => parseSources(JSON.stringify([config, { ...config, id: 'other' }])));
   assert.throws(() => parseSources(JSON.stringify([{ ...config, baselineSha: 'main' }])));
+});
+
+
+test('new MS and MSC markers preserve lifecycle and old syntax', () => {
+  assert.deepEqual(marker('milestone(MS-DASH-01): Dashboard workspace'), { operation: 'start', key: 'DASH-01', title: 'Dashboard workspace' });
+  const start = applyCommit(empty(), commit(20, 'milestone(MS-DASH-01): Dashboard workspace'));
+  assert.equal(start.issue, null);
+  assert.equal(applyCommit(start.state, commit(21, 'feat: add controls')).key, 'DASH-01');
+  const complete = applyCommit(start.state, commit(22, 'milestone(MSC-DASH-01): Dashboard delivered'));
+  assert.equal(complete.state.items['DASH-01'].phase, 'AWAITING');
+  assert.equal(complete.state.items['DASH-01'].completionSha, sha(22));
+  assert.equal(marker('milestone start AUTH-01: Account authentication')?.operation, 'start');
+});
+
+test('MSS is recognized but cannot bypass verification or mutate state', () => {
+  assert.deepEqual(sealMarker('milestone(MSS-DASH-01): Seal dashboard'), { key: 'DASH-01', title: 'Seal dashboard' });
+  const state = applyCommit(empty(), commit(20, 'milestone(MS-DASH-01): Dashboard workspace')).state;
+  const result = applyCommit(state, commit(21, 'milestone(MSS-DASH-01): Seal dashboard'));
+  assert.equal(result.issue, 'SEAL_REQUIRES_VERIFIED_COMPLETION');
+  assert.deepEqual(result.state, state);
+});
+
+test('candidate identifiers and version labels do not create milestones', () => {
+  assert.equal(candidateMilestoneKey('feat(dashboard): complete DASH-01 operations'), 'DASH-01');
+  assert.equal(candidateMilestoneKey('docs: DASH-01 and OA-03'), null);
+  assert.equal(marker('feat(dashboard): complete DASH-01 operations'), null);
+  assert.deepEqual(versionMarker('release: v0.4.0-rc.1'), { version: 'v0.4.0-rc.1', prerelease: true });
+  assert.deepEqual(versionMarker('release: v1.2.0'), { version: 'v1.2.0', prerelease: false });
+  assert.equal(versionMarker('feat: v1.2.0'), null);
+});
+
+test('new flag syntax is subject-only and malformed markers are rejected', () => {
+  assert.equal(marker('docs: example\n\nmilestone(MS-API-01): Never start'), null);
+  assert.throws(() => marker('milestone(MS-API-01): x'), /INVALID_MARKER/);
+  assert.throws(() => marker('milestone(MSC-API-01): x'), /INVALID_MARKER/);
 });
