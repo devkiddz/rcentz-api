@@ -5,16 +5,49 @@ export type Item = { key: string; title: string; phase: Phase; completionSha: st
 export type State = { activeKey: string | null; items: Record<string, Item> };
 export type Marker = { operation: 'start' | 'complete' | 'reopen' | 'cancel'; key: string; title: string };
 const keyPattern = '[A-Z][A-Z0-9_-]{1,39}';
+const candidatePattern = /\b([A-Z][A-Z0-9]*-\d{1,5})\b/g;
+
+/** Explicit subject-only milestone markers; legacy syntax remains valid. */
 export function marker(message: string): Marker | null {
   const subject = message.split(/\r?\n/, 1)[0].trim();
-  const match = new RegExp(`^milestone (start|complete|reopen|cancel) (${keyPattern}): (.{3,160})$`).exec(subject);
-  if (match) return { operation: match[1] as Marker['operation'], key: match[2], title: match[3].trim() };
+  const legacy = new RegExp(`^milestone (start|complete|reopen|cancel) (${keyPattern}): (.{3,160})$`).exec(subject);
+  if (legacy) return { operation: legacy[1] as Marker['operation'], key: legacy[2], title: legacy[3].trim() };
+  const tagged = /^milestone\((MS|MSC)-([A-Z][A-Z0-9_-]{1,39})\): (.{3,160})$/.exec(subject);
+  if (tagged) return { operation: tagged[1] === 'MS' ? 'start' : 'complete', key: tagged[2], title: tagged[3].trim() };
   if (/^milestone\b/i.test(subject)) throw new Error('INVALID_MARKER');
   return null;
+}
+
+/** MSS is recognized separately: sealing needs durable, verified governance in Pass B. */
+export function sealMarker(message: string): { key: string; title: string } | null {
+  const subject = message.split(/\r?\n/, 1)[0].trim();
+  const match = /^milestone\(MSS-([A-Z][A-Z0-9_-]{1,39})\): (.{3,160})$/.exec(subject);
+  return match ? { key: match[1], title: match[2].trim() } : null;
+}
+
+/** A feature identifier is a candidate, not a milestone-creation instruction. */
+export function candidateMilestoneKey(message: string): string | null {
+  const subject = message.split(/\r?\n/, 1)[0];
+  const keys = [...subject.matchAll(candidatePattern)].map(match => match[1]);
+  return new Set(keys).size === 1 ? keys[0] : null;
+}
+
+/** Release labels are descriptive until Git tag/deployment verification is added. */
+export function versionMarker(message: string): { version: string; prerelease: boolean } | null {
+  const subject = message.split(/\r?\n/, 1)[0].trim();
+  const match = /^release: (v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?)$/.exec(subject);
+  return match ? { version: match[1], prerelease: Boolean(match[5]) } : null;
 }
 export function applyCommit(previous: State, commit: Commit): { state: State; key: string | null; issue: string | null } {
   const state: State = { activeKey: previous.activeKey, items: { ...previous.items } };
   try {
+    // Recognize but do not auto-seal before persistent verification is implemented.
+    const seal = sealMarker(commit.message);
+    if (seal) {
+      if (!state.items[seal.key]) throw new Error('UNKNOWN_MILESTONE');
+      if (state.items[seal.key].phase !== 'COMPLETE') throw new Error('SEAL_REQUIRES_VERIFIED_COMPLETION');
+      return { state, key: seal.key, issue: 'SEAL_PENDING_PERSISTENCE' };
+    }
     const signal = marker(commit.message);
     if (!signal) {
       const trailers = [...commit.message.matchAll(new RegExp(`^Milestone: (${keyPattern})\\s*$`, 'gm'))];
