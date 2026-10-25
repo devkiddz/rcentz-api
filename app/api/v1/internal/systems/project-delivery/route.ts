@@ -60,6 +60,7 @@ export async function POST(request: Request) {
       // Additive field: existing Systems consumers keep their original response contract.
       unassignedActivity: unassignedActivity.map(c => ({ ...c, message: c.message.split(/\r?\n/, 1)[0] })),
       activityTimeline, activityTimelineTruncated,
+      ...(user.role === 'SUPER_ADMIN' ? {sourceId: delivery.source.id, targetDeliveryMilestoneId: delivery.id} : {}),
     });
   } catch { return apiError('READ_FAILED', 'Delivery activity unavailable', 503); }
 }
