@@ -2,7 +2,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@/generated/prisma/client';
-import type { AttributionCandidate } from './attribution-candidate';
+import { buildAttributionCandidate, type AttributionCandidate } from './attribution-candidate';
 import { projectCodeFromSlug } from './scoped-commit';
 import { reconcileDecisionPolicy, type ReconciliationDecision } from './reconciliation-policy';
 
@@ -31,7 +31,7 @@ function assertRequest(x: ReconciliationRequest) {
  * calling this function. A client-submitted candidate is NEVER trusted.
  * This function does not fetch GitHub, complete milestones or edit commit text.
  */
-export async function persistReconciliationDecision(x: ReconciliationRequest) {
+async function commitVerifiedReconciliation(x: ReconciliationRequest) {
   assertRequest(x);
   return prisma.$transaction(async tx => {
     // Serialize approvals with synchronization and concurrent reviewer attempts.
@@ -113,4 +113,43 @@ export async function persistReconciliationDecision(x: ReconciliationRequest) {
     } });
     return { eventId: event.id, decision: x.decision, linkCreated: outcome.intent === 'LINK_ONLY' };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 });
+}
+
+/**
+ * Trusted entrypoint. Loads all identities from the DB, derives the candidate
+ * from GitHub server-side, then rechecks them inside the serializable commit.
+ * Never accept candidate/evidence/project identity from the HTTP request.
+ * No endpoint currently invokes this function.
+ */
+export async function persistReconciliationDecision(input: {
+  actorId: string;
+  sourceId: string;
+  commitId: string;
+  targetDeliveryMilestoneId: string | null;
+  decision: ReconciliationDecision;
+  reason: string;
+  prNumber: number;
+}) {
+  if (!Number.isSafeInteger(input.prNumber) || input.prNumber < 1)
+    throw new Error('INVALID_PR_NUMBER');
+  const source = await prisma.deliverySource.findUniqueOrThrow({
+    where: { id: input.sourceId }, include: { project: { select: { slug: true } } }
+  });
+  const historical = await prisma.deliveryCommit.findUniqueOrThrow({
+    where: { id: input.commitId }
+  });
+  if (historical.sourceId !== source.id)
+    throw new Error('COMMIT_SOURCE_MISMATCH');
+  const candidate = await buildAttributionCandidate({
+    projectId: source.projectId, projectSlug: source.project.slug,
+    repository: source.repository, branch: source.branch
+  }, {
+    sourceProjectId: source.projectId,
+    sourceRepository: source.repository,
+    sourceBranch: source.branch,
+    sha: historical.sha,
+    existingMilestoneId: historical.deliveryMilestoneId,
+    issue: historical.issue
+  }, input.prNumber);
+  return commitVerifiedReconciliation({ ...input, candidate });
 }
