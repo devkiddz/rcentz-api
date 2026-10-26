@@ -3,6 +3,7 @@ import { apiError, apiSuccess } from '@/server/api/responses/api-response';
 import { requireApplicationIdentity } from '@/server/api/auth/require-application-identity';
 import { boundedBytes, object } from '@/server/projects/delivery/http';
 import { marker, sealMarker } from '@/server/projects/delivery/policy';
+import { projectMarker } from '@/server/projects/delivery/project-marker';
 
 export const runtime = 'nodejs';
 
@@ -24,24 +25,31 @@ type ActivityMarker = {
 };
 
 function readMarker(message: string): ActivityMarker | null {
-  try {
-    const seal = sealMarker(message);
+  // Merge commits often place a milestone subject in their message body.
+  // Only standalone marker lines qualify; prose mentioning a marker does not.
+  const lines = message.split(/\r?\n/);
+  for (const line of lines) {
+    const subject = line.trim();
+    if (!/^milestone(?:\(|\s)/.test(subject)) continue;
 
-    if (seal) {
-      return { kind: 'seal', milestoneKey: seal.key };
+    try {
+      const qualified = projectMarker(subject);
+      if (qualified) {
+        return { kind: qualified.operation, milestoneKey: qualified.milestoneKey };
+      }
+
+      const seal = sealMarker(subject);
+      if (seal) return { kind: 'seal', milestoneKey: seal.key };
+
+      const signal = marker(subject);
+      if (signal) {
+        return { kind: signal.operation, milestoneKey: signal.key };
+      }
+    } catch {
+      // Ignore malformed marker lines; other valid lines may still exist.
     }
-
-    const signal = marker(message);
-
-    if (!signal) return null;
-
-    return {
-      kind: signal.operation,
-      milestoneKey: signal.key
-    };
-  } catch {
-    return null;
   }
+  return null;
 }
 
 export async function POST(request: Request) {
@@ -118,7 +126,8 @@ export async function POST(request: Request) {
               state: 'SOURCE_LIMIT_EXCEEDED' as ActivityState,
               verification: 'NOT_EVALUATED' as const,
               latestCommit: null,
-              latestMilestoneEvent: null
+              latestMilestoneEvent: null,
+              milestoneEvents: []
             };
           }
 
@@ -128,7 +137,8 @@ export async function POST(request: Request) {
               state: 'NO_SOURCE' as ActivityState,
               verification: 'NOT_EVALUATED' as const,
               latestCommit: null,
-              latestMilestoneEvent: null
+              latestMilestoneEvent: null,
+              milestoneEvents: []
             };
           }
 
@@ -155,15 +165,13 @@ export async function POST(request: Request) {
             }),
 
             prisma.deliveryCommit.findMany({
-              where: {
-                sourceId: { in: sourceIds },
-                message: { startsWith: 'milestone' }
-              },
+              // Read recent recorded activity without assuming marker position.
+              where: { sourceId: { in: sourceIds } },
               orderBy: [
                 { committedAt: 'desc' },
                 { id: 'desc' }
               ],
-              take: 100,
+              take: 250,
               select: {
                 sha: true,
                 message: true,
@@ -178,25 +186,37 @@ export async function POST(request: Request) {
             })
           ]);
 
-          let latestMilestoneEvent = null;
+          // Retain recognized marker events (newest first) for matching to
+          // the current milestone in Systems. Parsing does not verify delivery.
+          const milestoneEvents = [] as Array<{
+            sha: string;
+            message: string;
+            committedAt: Date;
+            repository: string;
+            branch: string;
+            kind: ActivityMarker['kind'];
+            milestoneKey: string;
+            verification: 'NOT_EVALUATED';
+          }>;
 
           for (const candidate of candidates) {
             const parsed = readMarker(candidate.message);
             if (!parsed) continue;
 
-            latestMilestoneEvent = {
+            milestoneEvents.push({
               sha: candidate.sha,
-              message: candidate.message.split(/\r?\n/, 1)[0],
+              // Keep the full message, including the Description: trailer.
+              message: candidate.message,
               committedAt: candidate.committedAt,
               repository: candidate.source.repository,
               branch: candidate.source.branch,
               kind: parsed.kind,
               milestoneKey: parsed.milestoneKey,
-              verification: 'NOT_EVALUATED' as const
-            };
-
-            break;
+              verification: 'NOT_EVALUATED'
+            });
           }
+
+          const latestMilestoneEvent = milestoneEvents[0] ?? null;
 
           const hasError = sources.some(
             source => Boolean(source.lastError)
@@ -225,7 +245,8 @@ export async function POST(request: Request) {
                   branch: commit.source.branch
                 }
               : null,
-            latestMilestoneEvent
+            latestMilestoneEvent,
+            milestoneEvents
           };
         })
       );
