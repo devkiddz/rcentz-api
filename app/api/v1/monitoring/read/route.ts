@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 function equal(a: string, b: string) { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x,y); }
 type Bucket = { hour: Date; requests: bigint; errors: bigint; functions: bigint; durationMs: bigint };
 export async function POST(request: Request) {
-  const secret = process.env.RCENTZ_RM01_READ_TOKEN || '';
+  const secret = process.env.RCENTZ_OBSERVABILITY_READ_TOKEN || '';
   if (secret.length < 32 || !equal(request.headers.get('x-rm01-read-token') || '', secret)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   let data: Record<string, unknown>;
   try { const body = await request.text(); if (Buffer.byteLength(body) > 512) throw Error('size'); const parsed: unknown = JSON.parse(body); if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw Error('shape'); data = parsed as Record<string, unknown>; }
