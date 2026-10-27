@@ -4293,3 +4293,30 @@ model ProjectGovernanceEvent {
   @@index([projectId, createdAt])
   @@index([milestoneId, createdAt])
 }
+
+
+model RuntimeMonitorEvent {
+  sourceId String @db.VarChar(80)
+  batchId String @db.VarChar(80)
+  projectId String @db.VarChar(128)
+  routeLabel String @db.VarChar(120)
+  recordedAt DateTime @db.Timestamptz(6)
+  receivedAt DateTime @default(now()) @db.Timestamptz(6)
+  requests Int
+  errors Int
+  functions Int
+  durationMs Int
+  @@id([sourceId, batchId])
+  @@index([projectId, recordedAt(sort: Desc)], map: "RuntimeMonitorEvent_project_time_idx")
+}
+
+model RuntimeMonitorSource {
+  id String @id @db.VarChar(80)
+  projectId String @db.VarChar(128)
+  label String @db.VarChar(120)
+  tokenHash String @db.VarChar(64)
+  enabled Boolean @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  revokedAt DateTime? @db.Timestamptz(6)
+  @@index([projectId])
+}
