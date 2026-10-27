@@ -2,8 +2,8 @@ import { prisma } from '@/lib/prisma';
 import { apiError, apiSuccess } from '@/server/api/responses/api-response';
 import { requireApplicationIdentity } from '@/server/api/auth/require-application-identity';
 import { boundedBytes, object } from '@/server/projects/delivery/http';
-import { marker, sealMarker } from '@/server/projects/delivery/policy';
-import { projectMarker } from '@/server/projects/delivery/project-marker';
+import { readProjectActivityMarker, type ActivityMarker } from '@/server/projects/delivery/activity-marker';
+import { projectCodeFromSlug } from '@/server/projects/delivery/scoped-commit';
 
 export const runtime = 'nodejs';
 
@@ -18,39 +18,6 @@ type ActivityState =
   | 'AWAITING_SYNC'
   | 'SYNC_ERROR'
   | 'SYNCED';
-
-type ActivityMarker = {
-  kind: 'start' | 'complete' | 'reopen' | 'cancel' | 'seal';
-  milestoneKey: string;
-};
-
-function readMarker(message: string): ActivityMarker | null {
-  // Merge commits often place a milestone subject in their message body.
-  // Only standalone marker lines qualify; prose mentioning a marker does not.
-  const lines = message.split(/\r?\n/);
-  for (const line of lines) {
-    const subject = line.trim();
-    if (!/^milestone(?:\(|\s)/.test(subject)) continue;
-
-    try {
-      const qualified = projectMarker(subject);
-      if (qualified) {
-        return { kind: qualified.operation, milestoneKey: qualified.milestoneKey };
-      }
-
-      const seal = sealMarker(subject);
-      if (seal) return { kind: 'seal', milestoneKey: seal.key };
-
-      const signal = marker(subject);
-      if (signal) {
-        return { kind: signal.operation, milestoneKey: signal.key };
-      }
-    } catch {
-      // Ignore malformed marker lines; other valid lines may still exist.
-    }
-  }
-  return null;
-}
 
 export async function POST(request: Request) {
   let body: string;
@@ -96,10 +63,10 @@ export async function POST(request: Request) {
 
     const projects = await prisma.project.findMany({
       where: { id: { in: ids } },
-      select: { id: true }
+      select: { id: true, slug: true }
     });
 
-    const allowed = new Set(projects.map(project => project.id));
+    const allowed = new Map(projects.map(project => [project.id, project.slug]));
 
     const summaries = [];
 
@@ -107,7 +74,9 @@ export async function POST(request: Request) {
     for (let offset = 0; offset < ids.length; offset += 4) {
       const batch = await Promise.all(
         ids.slice(offset, offset + 4).map(async projectId => {
-          if (!allowed.has(projectId)) return null;
+          const projectSlug = allowed.get(projectId);
+          if (!projectSlug) return null;
+          const projectCode = projectCodeFromSlug(projectSlug);
 
           const sources = await prisma.deliverySource.findMany({
             where: { projectId },
@@ -200,7 +169,7 @@ export async function POST(request: Request) {
           }>;
 
           for (const candidate of candidates) {
-            const parsed = readMarker(candidate.message);
+            const parsed = readProjectActivityMarker(candidate.message, projectCode);
             if (!parsed) continue;
 
             milestoneEvents.push({
