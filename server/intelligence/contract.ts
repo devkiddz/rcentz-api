@@ -3,7 +3,7 @@ export type IntakeEvent = {
   schemaVersion: 1;
   eventId: string;
   occurredAt: string;
-  kind: 'feature' | 'performance' | 'runtime';
+  kind: 'analytics' | 'feature' | 'performance' | 'runtime';
   name: string;
   environment: 'development' | 'preview' | 'production';
   featureKey?: string;
@@ -12,7 +12,7 @@ export type IntakeEvent = {
 };
 const identifier = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const allowedDimensions = new Set(['route','platform','device','result','category','operation']);
+const allowedDimensions = new Set(['route','platform','device','result','category','operation','source','session']);
 export function decodeBatch(raw: unknown, now = Date.now()): IntakeEvent[] {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw Error('BAD_BATCH');
   const {events} = raw as Record<string, unknown>;
@@ -24,7 +24,7 @@ export function decodeBatch(raw: unknown, now = Date.now()): IntakeEvent[] {
         e.schemaVersion !== 1 || typeof e.eventId !== 'string' || !uuid.test(e.eventId) ||
         typeof e.occurredAt !== 'string' || !Number.isFinite(Date.parse(e.occurredAt)) ||
         Math.abs(now - Date.parse(e.occurredAt)) > 86400000 ||
-        !['feature','performance','runtime'].includes(String(e.kind)) ||
+        !['analytics','feature','performance','runtime'].includes(String(e.kind)) ||
         !['development','preview','production'].includes(String(e.environment)) ||
         typeof e.name !== 'string' || e.name.length > 100 || !identifier.test(e.name) ||
         (e.featureKey !== undefined && (typeof e.featureKey !== 'string' || !identifier.test(e.featureKey))) ||
@@ -37,8 +37,9 @@ export function decodeBatch(raw: unknown, now = Date.now()): IntakeEvent[] {
       if (!identifier.test(key) || key.length>48 || typeof val!=='number' || !Number.isFinite(val) || Math.abs(val)>1e12) throw Error('BAD_MEASUREMENT');
     }
     if (e.dimensions) for (const [key,val] of Object.entries(e.dimensions)) {
-      if (!allowedDimensions.has(key) || typeof val!=='string' || val.length>80 || /[?&#@]/.test(val) ||
-          (key==='route' && (!/^\/[a-zA-Z0-9/_\[\]-]{0,79}$/.test(val) || /\d{5,}/.test(val)))) throw Error('BAD_DIMENSION');
+      const maxLength=key==='route'?512:key==='session'?64:80;
+      if (!allowedDimensions.has(key) || typeof val!=='string' || val.length>maxLength || /[?&#@]/.test(val) ||
+          (key==='route' && (!/^\/[a-zA-Z0-9/_\[\]-]{0,511}$/.test(val) || /\d{5,}/.test(val)))) throw Error('BAD_DIMENSION');
     }
     return e as IntakeEvent;
   });
