@@ -1,4 +1,4 @@
-generator client {
+﻿generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
 }
@@ -1115,7 +1115,7 @@ model StaffProfile {
 }
 
 // =========================================================
-// SERVICES — CATALOGUE, INTELLIGENCE, ONBOARDING & REQUESTS
+// SERVICES â€” CATALOGUE, INTELLIGENCE, ONBOARDING & REQUESTS
 // Service records describe reusable commercial offerings.
 // Service milestone templates describe a typical delivery path.
 // Real execution lives in Project -> ProjectMilestone after conversion.
@@ -1744,7 +1744,7 @@ model SubscriptionUsageRecord {
 }
 
 // =========================================================
-// PROJECT MANAGEMENT — CANONICAL PROJECT SOURCE
+// PROJECT MANAGEMENT â€” CANONICAL PROJECT SOURCE
 // Execution hierarchy: Project -> Milestone -> Feature -> Task.
 // Deliverables represent agreed project outputs and may optionally belong to a milestone.
 // Processes explain project requirements, blockers, dependencies and client actions.
@@ -3912,7 +3912,7 @@ model OpportunitySourceRun {
   @@index([profileId, startedAt])
 }
 
-// OA-02 — Private company capability intelligence. Not a public service catalogue.
+// OA-02 â€” Private company capability intelligence. Not a public service catalogue.
 enum CompanyCapabilityStatus {
   DRAFT
   READY
@@ -4025,7 +4025,7 @@ model CapabilityEvidence {
   @@index([capabilityId, state])
 }
 
-// Client Acquisition P2 — isolated from personal OpportunityProfile/Opportunity.
+// Client Acquisition P2 â€” isolated from personal OpportunityProfile/Opportunity.
 model ClientAcquisitionSettings {
   id                 String   @id @default(cuid())
   companyProfileId   String   @unique
@@ -4319,4 +4319,22 @@ model RuntimeMonitorSource {
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   revokedAt DateTime? @db.Timestamptz(6)
   @@index([projectId])
+}
+
+// SDK v1 additive event storage â€” copy this model into prisma/schema.prisma
+model IntelligenceEvent {
+  sourceId String @db.VarChar(80)
+  eventId String @db.VarChar(36)
+  projectId String @db.VarChar(128)
+  occurredAt DateTime @db.Timestamptz(6)
+  receivedAt DateTime @default(now()) @db.Timestamptz(6)
+  kind String @db.VarChar(16)
+  name String @db.VarChar(100)
+  environment String @db.VarChar(16)
+  featureKey String? @db.VarChar(100)
+  measurements Json @default("{}")
+  dimensions Json @default("{}")
+  @@id([sourceId, eventId])
+  @@index([projectId, occurredAt(sort: Desc)], map: "IntelligenceEvent_project_time_idx")
+  @@index([projectId, featureKey, occurredAt(sort: Desc)], map: "IntelligenceEvent_project_feature_idx")
 }
