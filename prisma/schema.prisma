@@ -4320,3 +4320,21 @@ model RuntimeMonitorSource {
   revokedAt DateTime? @db.Timestamptz(6)
   @@index([projectId])
 }
+
+// SDK v1 additive intelligence event storage
+model IntelligenceEvent {
+  sourceId String @db.VarChar(80)
+  eventId String @db.VarChar(36)
+  projectId String @db.VarChar(128)
+  occurredAt DateTime @db.Timestamptz(6)
+  receivedAt DateTime @default(now()) @db.Timestamptz(6)
+  kind String @db.VarChar(16)
+  name String @db.VarChar(100)
+  environment String @db.VarChar(16)
+  featureKey String? @db.VarChar(100)
+  measurements Json @default("{}")
+  dimensions Json @default("{}")
+  @@id([sourceId, eventId])
+  @@index([projectId, occurredAt(sort: Desc)], map: "IntelligenceEvent_project_time_idx")
+  @@index([projectId, featureKey, occurredAt(sort: Desc)], map: "IntelligenceEvent_project_feature_idx")
+}
