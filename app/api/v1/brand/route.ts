@@ -7,11 +7,11 @@ const brand = {
   version: 1,
   assets: {
     logo: {
-      light: "/brands/rcentz/rcentz-cr-lockup-light.svg",
-      dark: "/brands/rcentz/rcentz-cr-lockup-dark.svg",
+      light: "/brands/rcentz/rcentz-mark-light.svg",
+      dark: "/brands/rcentz/rcentz-mark-dark.svg",
     },
-    symbol: "/brands/rcentz/rcentz-cr-symbol-blue.svg",
-    favicon: "/brands/rcentz/rcentz-cr-symbol-blue.svg",
+    symbol: "/brands/rcentz/rcentz-mark-dark.svg",
+    favicon: "/brands/rcentz/rcentz-mark-dark.svg",
   },
   colors: {
     primary: "#4260E6",
